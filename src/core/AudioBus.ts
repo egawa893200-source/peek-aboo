@@ -77,6 +77,16 @@ const STORAGE_KEY = 'baa.audio';
 export type VoiceClip = 'baa';
 
 /**
+ * 素材の要らない単発音（不変条件7）。すべて WebAudio で合成する。
+ *  - plop   … 押した実感（§4-3 の 0.00s）
+ *  - bubble … 登場の山に添える小さな音（§4-4）
+ *  - hop    … ぴょん（§4-5 の跳ね）
+ *  - rustle … 草をかき分けるワサワサ（§4-5 / §4-6）
+ *  - huh    … 空振りの「あれ？」（§4-6。**落胆の音にしない**）
+ */
+export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh';
+
+/**
  * 声の base64 を取り出す。
  *
  * 餌ごとの3本だけ動的 import にして、初期バンドルから外している。
@@ -110,6 +120,10 @@ export class AudioBus {
   private pendingAmbient: string | null = null;
   /** 同じ音が重なりすぎないようにする（連打対策 §2） */
   private lastOneShot = 0;
+  /** ワサワサの最短間隔用。ほかの単発音とは別枠にする */
+  private lastRustle = 0;
+  /** ワサワサのノイズ。毎回作らずに使い回す（§10-3） */
+  private rustleBuffer: AudioBuffer | null = null;
   /**
    * 読み上げが渋滞しないようにする（出るたびに喋るため）。
    *
@@ -487,6 +501,25 @@ export class AudioBus {
    *    まだ喋っている最中なら重ねない。§2「突発音を作らない」に反するため
    *  - 環境音は -18dBFS 目安だが、声はそれでは聞こえないので少し上げる
    */
+  /**
+   * 動物が飛び出した瞬間の「ばあっ！」（§4-3 の山 / §4-4）。
+   *
+   * **`speak()` を通さない。** あちらは読み上げ用の入口で、
+   * 最短間隔 1.25秒 の制限が掛かっている。それだと
+   * 別の隠れ場所を続けて押したときに声が落ちて、
+   * 「押したのに ばあっ！ が返らない」回ができる（実際そうなっていた）。
+   *
+   * ここは**録音した1本を鳴らすだけ**。重なりは `playVoiceClip` の
+   * `voiceBusyUntil` が防ぐので、言葉が潰れることはない。
+   * まだデコードが終わっていない初回だけ、合成音が代役に立つ（§2 無音にしない）。
+   */
+  playVoice(clip: VoiceClip = 'baa'): void {
+    if (this.muted || this.disabled || !this.unlocked) return;
+    if (this.playVoiceClip(clip)) return;
+    void this.ensureVoice(clip);
+    this.fallbackVoice(clip);
+  }
+
   speak(text: string, clip: VoiceClip = 'baa'): void {
     if (this.muted || this.disabled || !this.unlocked) return;
 
@@ -612,14 +645,24 @@ export class AudioBus {
     };
   }
 
-  playOneShot(name: 'plop' | 'bubble'): void {
+  playOneShot(name: OneShot): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || this.disabled) return;
 
-    // 連打で音が重なりすぎないよう最小間隔を設ける
+    // 連打で音が重なりすぎないよう最小間隔を設ける。
+    // ワサワサ（rustle）だけは別枠。ふたが開く音と跳ねる音は
+    // 同じ瞬間に鳴ることがあり、片方が消えると動きと音がずれて聞こえる
     const now = ctx.currentTime;
-    if (now - this.lastOneShot < 0.05) return;
-    this.lastOneShot = now;
+    const gate = name === 'rustle' ? this.lastRustle : this.lastOneShot;
+    const minGap = name === 'rustle' ? 0.18 : 0.05;
+    if (now - gate < minGap) return;
+    if (name === 'rustle') this.lastRustle = now;
+    else this.lastOneShot = now;
+
+    if (name === 'rustle') {
+      this.playRustle(now);
+      return;
+    }
 
     const gain = ctx.createGain();
     gain.connect(this.master);
@@ -628,7 +671,30 @@ export class AudioBus {
     osc.type = 'sine';
     osc.connect(gain);
 
-    if (name === 'plop') {
+    if (name === 'hop') {
+      // ぴょん。**短く、上がって終わる。** 落ちる音にすると
+      // 「着地に失敗した」ように聞こえて、跳ねている絵と合わない（§4-5）
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(330, now);
+      osc.frequency.exponentialRampToValueAtTime(760, now + 0.09);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(ONE_SHOT_PEAK * 0.5, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      osc.start(now);
+      osc.stop(now + 0.18);
+    } else if (name === 'huh') {
+      // §4-6 の「あれ？」。**落胆の音にしない。**
+      // 下がってから少し上がる、とぼけた2音。ブザーにはしない
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(300, now + 0.14);
+      osc.frequency.exponentialRampToValueAtTime(430, now + 0.3);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(ONE_SHOT_PEAK * 0.42, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.42);
+    } else if (name === 'plop') {
       // 低い音を短く落とす
       osc.frequency.setValueAtTime(420, now);
       osc.frequency.exponentialRampToValueAtTime(90, now + 0.12);
@@ -714,6 +780,60 @@ export class AudioBus {
     master.gain.cancelScheduledValues(now);
     master.gain.setValueAtTime(master.gain.value, now);
     master.gain.linearRampToValueAtTime(value, now + seconds);
+  }
+
+  /**
+   * 草をかき分ける「ワサワサ」（§4-5 / §4-6）。
+   *
+   * ノイズをバンドパスに通して、山を2つ作る。
+   * **1回の連続したノイズにしないこと。** それだと「シュー」という
+   * 空気の音になって、葉が擦れている感じにならない。
+   * 帯域を 1.4kHz 付近に置いてあるのは、そこを外すと
+   * 低いと「風」、高いと「砂」に聞こえるため。
+   */
+  private playRustle(now: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = this.rustleBuffer ?? (this.rustleBuffer = this.makeRustleBuffer(ctx));
+
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.setValueAtTime(1200, now);
+      band.frequency.linearRampToValueAtTime(2100, now + 0.18);
+      band.Q.value = 0.9;
+
+      const gain = ctx.createGain();
+      // 2度こすれる。葉のあいだを手が通る感じ
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(ONE_SHOT_PEAK * 0.34, now + 0.03);
+      gain.gain.linearRampToValueAtTime(ONE_SHOT_PEAK * 0.12, now + 0.13);
+      gain.gain.linearRampToValueAtTime(ONE_SHOT_PEAK * 0.26, now + 0.2);
+      gain.gain.linearRampToValueAtTime(0.0001, now + 0.36);
+
+      src.connect(band);
+      band.connect(gain);
+      gain.connect(this.master);
+      src.start(now);
+      src.stop(now + 0.38);
+      src.onended = () => {
+        src.disconnect();
+        band.disconnect();
+        gain.disconnect();
+      };
+    } catch {
+      /* 鳴らせなくてもアプリは動く（§2 エラー画面を出さない） */
+    }
+  }
+
+  /** ワサワサ用の白いノイズ。0.5秒ぶんを作って使い回す（毎回作らない） */
+  private makeRustleBuffer(ctx: AudioContext): AudioBuffer {
+    const length = Math.floor(ctx.sampleRate * 0.5);
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    return buffer;
   }
 
   /** ホワイトノイズより低域に寄せた（水中らしい）ノイズを作る */

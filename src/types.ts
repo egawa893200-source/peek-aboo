@@ -116,10 +116,60 @@ export interface AnimalConfig {
    */
   bodyHeight?: number;
   bodyWidth?: number;
+
+  /**
+   * 体の作り。省略すると 'mammal'。
+   * **`bodyPlan` / `headTop` / `snout` / `tail` を必ず指定すること。**
+   * 省略すると耳も鼻も尾も無い塊になり、どの動物も同じ輪郭になる（§5-2）。
+   */
+  bodyPlan?: BodyPlan;
+  headTop?: HeadTop;
+  snout?: Snout;
+  tail?: TailShape;
+  coat?: Coat;
 }
 
 export type AnimalStyle = 'pop' | 'slide' | 'spin' | 'flip' | 'peek';
 export type HintPart = 'tail' | 'ear' | 'nose' | 'foot' | 'fin';
+
+/* ---- 手続き生成の輪郭（§5-2「見分けは色より輪郭」） ---------------------- */
+
+/**
+ * 体の作り。**これが輪郭のいちばん大きな違いになる。**
+ *
+ * 動物ごとに `id` で分岐を書くのはやめた。17体で分岐が3箇所に散り、
+ * 「新しい動物を足したのに、尾だけ他所の分岐に入れ忘れる」が起きる。
+ * ここに書いたものだけで形が決まるようにしてある。
+ */
+export type BodyPlan =
+  | 'mammal' // 4足のけもの。胴＋頭＋耳＋鼻＋尾
+  | 'bird' // とり。丸い胴・くちばし・翼・尾羽
+  | 'fish' // さかな。**横向きに作る**（正面から見ても魚に見えないため）
+  | 'octopus' // たこ。丸い頭＋足
+  | 'crab' // かに。平たい体＋はさみ＋目の柄
+  | 'insect' // むし。細い胴＋大きな羽
+  | 'frog'; // かえる。平たい体＋頭の上の目
+
+/** 頭の上に付くもの。耳だけでなく角やとさかもここ */
+export type HeadTop =
+  | 'none'
+  | 'triangleEars'
+  | 'floppyEars'
+  | 'roundEars'
+  | 'longEars'
+  | 'tuftEars'
+  | 'horns'
+  | 'comb'
+  | 'antennae';
+
+/** 顔の前に出るもの */
+export type Snout = 'none' | 'muzzle' | 'point' | 'beak' | 'flat' | 'wide';
+
+/** 後ろに付くもの */
+export type TailShape = 'none' | 'thin' | 'bushy' | 'puff' | 'feather' | 'curl';
+
+/** 体の表面。輪郭を大きく変えるものだけ持つ */
+export type Coat = 'plain' | 'spiky' | 'fluffy' | 'banded' | 'spotted';
 
 /* ---- 状態 ---------------------------------------------------------------- */
 

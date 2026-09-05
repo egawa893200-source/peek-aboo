@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
+import { ANIMALS } from '../../src/data/animals';
 import { findScene, SCENES } from '../../src/data/scenes';
 import {
   AnimalSystem,
@@ -114,6 +115,59 @@ function fakeTester(scale = 100): SpotHitTester {
 
 const NOHARA = findScene('nohara');
 
+/**
+ * 場面ひとつぶんの一式を、`SceneRoot` と同じ手順で組む。
+ *
+ * **`SceneRoot` と同じにしておくこと。** 片方だけ直すと、
+ * テストは通るのに実機では違う、という一番たちの悪い形になる。
+ */
+function sceneRig(sceneId: string, seed = 12345): ChaseRig {
+  const scene = findScene(sceneId);
+  const spots = new SpotSystem(scene.spots, scene.mode);
+  const animals = new AnimalSystem(spots, false);
+
+  let chase: ChaseSystem | null = null;
+  if (scene.mode === 'chase' && scene.runner) {
+    const start = spots.runtimes[0];
+    const runner = animals.spawn(start, scene.runner);
+    // モードBのヒントは「移動そのもの」（§4-5）。人間が決めた扱い（2026-09-05）
+    if (runner) runner.showHint = false;
+    chase = new ChaseSystem(spots, animals, { seed, startSpotId: start.config.id });
+  }
+  const empty = new EmptySpot(spots);
+  spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
+
+  const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
+  camera.position.set(0, 0.3, 7.2);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld(true);
+
+  return {
+    spots,
+    animals,
+    camera,
+    // モードAの場面では chase は無い。呼ばないこと
+    chase: chase as ChaseSystem,
+    empty,
+    answer: () => (chase ? chase.getAnswerSpot() : spots.runtimes[0]),
+    advance(seconds, onFrame) {
+      const frames = Math.round(seconds / DT);
+      for (let i = 0; i < frames; i++) {
+        onFrame?.(i);
+        spots.update(DT);
+        chase?.update(DT);
+        empty.update(DT);
+        animals.update(DT, spots, camera);
+      }
+    },
+  };
+}
+
+/** モードA（その場に住む）の場面 */
+const HIDEOUT_SCENES = SCENES.filter((s) => s.mode === 'hideout').map((s) => s.id);
+/** 全場面 */
+const ALL_SCENES = SCENES.map((s) => s.id);
+
 interface ChaseRig extends Rig {
   chase: ChaseSystem;
   empty: EmptySpot;
@@ -132,7 +186,9 @@ function chaseRig(seed = 12345): ChaseRig {
   const spots = new SpotSystem(NOHARA.spots, NOHARA.mode);
   const animals = new AnimalSystem(spots, false);
   const start = spots.runtimes[0];
-  animals.spawn(start, NOHARA.runner!);
+  const runner = animals.spawn(start, NOHARA.runner!);
+  // **SceneRoot と同じ扱いにする。** モードBのヒントは「移動そのもの」（§4-5）
+  if (runner) runner.showHint = false;
   const chase = new ChaseSystem(spots, animals, { seed, startSpotId: start.config.id });
   const empty = new EmptySpot(spots);
   spots.onEmpty((spot) => empty.trigger(spot, chase.getAnswerSpot()));
@@ -420,6 +476,13 @@ describe('不変条件2 — どの瞬間に押しても反応する', () => {
 
 describe('不変条件3 — 隠れていても必ず見えている', () => {
   it('hidden の状態でも、画面に出ている面積が 0 でない', () => {
+    // ==========================================================================
+    // **モードA（その場に住む）だけの条件。**
+    // モードB（のはら / §4-5）のヒントは「移動そのもの」で、
+    // 外したときは正解の場所が揺れて教える（§4-6）ので、
+    // 草むらから体の一部を出さない。この扱いは**人間が決めた**（2026-09-05）。
+    // 出していないことは「§4-5 移動モード」のテストで確かめている。
+    // ==========================================================================
     const { spots, animals, advance } = rig();
     advance(0.5); // ヒントの揺れを1周ぶん回してから測る
 
@@ -592,8 +655,9 @@ describe('不変条件3 — 隠れていても必ず見えている', () => {
     //                − 沈めた量（HIDDEN_SINK は体高によらず一定）
     // なので、**体高で割ったときの値は動物ごとに違う**のが正しい。
     // ここが全部同じ値になっていたら、高さを実測せず決め打ちにしている
+    // モードB はヒントを出さないので、ここはモードAだけを見る
     const seen = new Set<number>();
-    for (const rigging of [rig(), chaseRig()]) {
+    for (const rigging of [rig()]) {
       for (const spot of rigging.spots.runtimes) {
         const e = rigging.animals.getExposure(spot);
         if (!e) continue;
@@ -941,9 +1005,10 @@ describe('§4-5 移動モード', () => {
     }
   });
 
-  it('移動が終わると、うさぎは移動先に隠れてヒントが見えている', () => {
-    // 不変条件3。**モードBの例外は「空になった場所」だけ**で、
-    // うさぎが入っている場所は、体の一部が見えていること
+  it('移動が終わると、うさぎは移動先に完全に隠れる（ヒントを出さない）', () => {
+    // **モードBはヒントを出さない。** 出さなくてよいと人間が決めた（2026-09-05）。
+    // 理由: 外したときに正解の草むらが揺れて教えるので（§4-6）、
+    // 草から体の一部を出す必要がない。§4-5 の表の「ヒント＝移動そのもの」とも合う。
     const { spots, chase, animals, advance } = chaseRig();
     spots.tap(chase.getAnswerSpot());
     advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + CHASE_MOVE_SEC + 0.3);
@@ -952,14 +1017,16 @@ describe('§4-5 移動モード', () => {
     expect(chase.getPhase()).toBe('idle');
     expect(home.state).toBe('hidden');
 
-    const e = animals.getExposure(home);
-    expect(e).not.toBeNull();
-    expect(e!.fraction).toBeGreaterThanOrEqual(0.15);
-    expect(e!.fraction).toBeLessThanOrEqual(0.25);
-    expect(e!.bodyFraction).toBeLessThan(0.01);
-    // ヒントが出ている＝跳んでいる最中の「driven」が解けている
-    expect(animals.getSlot(home.config.id)!.driven).toBe(false);
-    expect(animals.getSlot(home.config.id)!.built.hint.visible).toBe(true);
+    const slot = animals.getSlot(home.config.id)!;
+    // 跳んでいる最中の「driven」が解けている（次のタップで普通に出られる）
+    expect(slot.driven).toBe(false);
+    expect(slot.showHint).toBe(false);
+    expect(slot.built.hint.visible).toBe(false);
+
+    // **体は1点も見えていない。** ヒントを消したぶん、ここは厳しく見る
+    const e = animals.getExposure(home)!;
+    expect(e.fraction).toBe(0);
+    expect(e.bottomFraction).toBeLessThan(0.01);
   });
 
   it('移動先を押せば、そこから出てくる（次の周が回る）', () => {
@@ -973,5 +1040,178 @@ describe('§4-5 移動モード', () => {
     // 移動先でも、ふつうに「ばあ！」ができる
     expect(home.reveal).toBe(1);
     expect(home.state).toBe('out');
+  });
+});
+
+describe('全場面 — どの場面でも不変条件が成り立つ', () => {
+  // ==========================================================================
+  // **場面を足したら、ここが自動で見る。**
+  // おうちとのはらだけを見ていたときに、そと・うみ・のうじょう の
+  // 動物が隠れ場所に入りきらない（下からはみ出す・隙間から見える）のを
+  // 何度も見落とした。1場面ずつ書かず、`SCENES` を回すこと。
+  // ==========================================================================
+
+  it.each(ALL_SCENES)('%s: 隠れ場所がちょうど4箇所ある（§5-3）', (id) => {
+    // 4箇所より多くすると1つあたりが小さくなり、1歳半の指では押しにくくなる
+    expect(findScene(id).spots).toHaveLength(4);
+  });
+
+  it.each(ALL_SCENES)('%s: どの隠れ場所を押しても反応が返る（不変条件1・3b）', (id) => {
+    const { spots } = sceneRig(id);
+    for (const spot of spots.runtimes) {
+      expect(spots.tap(spot), `${id}/${spot.config.id}`).toBe(true);
+      expect(spot.shake, `${id}/${spot.config.id}`).toBeGreaterThan(0);
+    }
+    expect(spots.getResponseCount()).toBe(4);
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 押すと必ず out まで到達する（§4-1）', (id) => {
+    const { spots, advance } = sceneRig(id);
+    for (const spot of spots.runtimes) spots.tap(spot);
+    advance(PEAK_AT_SEC + DT);
+    for (const spot of spots.runtimes) {
+      expect(spot.state, `${id}/${spot.config.id}`).toBe('out');
+      expect(spot.reveal, `${id}/${spot.config.id}`).toBe(1);
+    }
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 隠れていても縁から見えている（不変条件3 / §4-2）', (id) => {
+    const { spots, animals, advance } = sceneRig(id);
+    advance(0.5);
+    for (const spot of spots.runtimes) {
+      const e = animals.getExposure(spot);
+      expect(e, `${id}/${spot.config.id} に動物が居ない`).not.toBeNull();
+      expect(e!.fraction, `${id}/${spot.config.id}`).toBeGreaterThanOrEqual(0.15);
+      expect(e!.fraction, `${id}/${spot.config.id}`).toBeLessThanOrEqual(0.25);
+    }
+  });
+
+  it.each(ALL_SCENES)('%s: 隠れ場所の上下から体がはみ出していない', (id) => {
+    const { spots, animals, advance } = sceneRig(id);
+    advance(0.5);
+    for (const spot of spots.runtimes) {
+      const e = animals.getExposure(spot);
+      if (!e) continue; // モードBの空の3箇所
+      expect(e.bodyFraction, `${id}/${spot.config.id} の顔が縁から見えている`).toBeLessThan(0.01);
+      expect(e.bottomFraction, `${id}/${spot.config.id} が下にはみ出している`).toBeLessThan(0.01);
+    }
+  });
+
+  it.each(ALL_SCENES)('%s: 隠れているあいだ、体はどこからも覗けない', (id) => {
+    // 格子は隙間の幅より細かく。7×9 では 0.05 幅の隙間をすり抜けた
+    const COLS = 15;
+    const ROWS = 15;
+    const { spots, animals, camera, advance } = sceneRig(id);
+    advance(0.5);
+
+    const ray = new THREE.Raycaster();
+    const target = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const box = new THREE.Box3();
+
+    for (const spot of spots.runtimes) {
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+      spots.group.updateWorldMatrix(true, true);
+
+      box.makeEmpty();
+      for (const child of slot.built.group.children) {
+        if (child === slot.built.hint) continue;
+        box.expandByObject(child);
+      }
+
+      const leaks: string[] = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          target.set(
+            box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / COLS,
+            box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / ROWS,
+            box.max.z
+          );
+          dir.subVectors(target, camera.position).normalize();
+          ray.set(camera.position, dir);
+          ray.far = Infinity;
+          const hits = ray.intersectObject(spots.group, true);
+          if (hits.length === 0) continue;
+          const first = hits[0].object;
+          if (isDescendantOf(first, slot.built.group) && !isDescendantOf(first, slot.built.hint)) {
+            leaks.push(`(${c},${r})`);
+          }
+        }
+      }
+      expect(
+        leaks.length,
+        `${id}/${spot.config.id}: 隠れているのに体が ${leaks.length}/${COLS * ROWS} 点で見えている`
+      ).toBe(0);
+    }
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: ヒントがカメラから遮られずに見えている', (id) => {
+    const { spots, animals, camera, advance } = sceneRig(id);
+    advance(0.5);
+    const ray = new THREE.Raycaster();
+    const target = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const box = new THREE.Box3();
+
+    for (const spot of spots.runtimes) {
+      const slot = animals.getSlot(spot.config.id)!;
+      spots.group.updateWorldMatrix(true, true);
+      box.setFromObject(slot.built.hint);
+      box.getCenter(target);
+      target.y = box.max.y - (box.max.y - box.min.y) * 0.2;
+
+      dir.subVectors(target, camera.position);
+      const distance = dir.length();
+      ray.set(camera.position, dir.normalize());
+      ray.far = distance - 0.02;
+
+      const blockers = ray
+        .intersectObject(spots.group, true)
+        .filter((b) => !isDescendantOf(b.object, slot.built.hint));
+      expect(
+        blockers.map((b) => b.object.name || b.object.type),
+        `${id}/${spot.config.id}: ヒントが見えていない`
+      ).toEqual([]);
+    }
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 隠れ場所が動物の断面の 0.86 倍以上を覆う（§4-2）', (id) => {
+    const { spots, animals } = sceneRig(id);
+    for (const spot of spots.runtimes) {
+      const fit = animals.getFit(spot)!;
+      expect(fit.mouthWidth, `${id}/${spot.config.id}`).toBeGreaterThanOrEqual(
+        fit.animalWidth * 0.86
+      );
+    }
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 4体のヒントが全部違う形（§4-2）', (id) => {
+    // 同じ形が2つあると、どの場所に誰が居るかを形で覚えられない
+    const parts = findScene(id).spots.map((spot) => {
+      const animal = ANIMALS.find((a) => a.id === spot.animals[0]);
+      return animal?.hintPart;
+    });
+    expect(new Set(parts).size, `${id}: ${parts.join(' / ')}`).toBe(4);
+  });
+
+  it.each(ALL_SCENES)('%s: 当たり判定どうしが重ならない（§3-2）', (id) => {
+    const { spots } = sceneRig(id);
+    const tester = fakeTester(40); // 設定値のままなら全部重なる縮尺
+    spots.projectAll(tester);
+    const pts = spots.runtimes.map((s) => {
+      const p = { x: 0, y: 0 };
+      tester.project(s.worldPosition, p);
+      return p;
+    });
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+        expect(
+          spots.radiusAt(i) + spots.radiusAt(j),
+          `${id}: ${spots.runtimes[i].config.id}-${spots.runtimes[j].config.id}`
+        ).toBeLessThan(d);
+      }
+    }
   });
 });

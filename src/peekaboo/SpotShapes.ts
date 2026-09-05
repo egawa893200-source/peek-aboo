@@ -208,9 +208,16 @@ export function createSpotShape(kind: SpotKind): SpotShape {
       return createDoor(palette);
     case 'bush':
       return createBush(palette);
+    case 'rock':
+      return createRock(palette);
+    case 'water':
+      return createWater(palette);
+    case 'hollow':
+      return createHollow(palette);
+    case 'pot':
+      return createPot(palette);
     default:
-      // rock / water / hollow / pot は今回まだ使わない。
-      // 箱で代役を立てて、押しても無反応にはしない
+      // 未知の形でも、箱で代役を立てて押しても無反応にはしない（不変条件1／7）
       return createBox(palette);
   }
 }
@@ -510,6 +517,291 @@ function createBush(p: Palette): SpotShape {
         const side = i === 0 ? -1 : 1;
         bunches[i].position.x = (side * W) / 4 - side * 0.14 + side * openX * t;
         bunches[i].rotation.z = -side * 0.5 * t;
+      }
+    },
+    setWobble(r) {
+      group.rotation.z = r;
+    },
+    dispose() {
+      disposeObject3D(group);
+    },
+  };
+}
+
+/* --- いわ ------------------------------------------------------------------ */
+
+/**
+ * 割れて左右に開く岩。
+ *
+ * くさむらと同じで**中央に隙間を残さない**。
+ * 深さも同じだけ取ってある（背の高い動物が入るため。`coverBottomY` の注記）。
+ */
+function createRock(p: Palette): SpotShape {
+  const group = new THREE.Group();
+  const stone = standard(p.cover, 0.95);
+
+  group.add(plate('rock.back', W, H * 1.6, PLATE, standard(p.body, 0.95), 0, -H * 0.2, -HALF_D - 0.1));
+
+  const halves: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    const half = new THREE.Group();
+    // ごつごつさせる。1個の球だと「たまご」に見えて岩にならない
+    const blobs: [number, number, number, number, number][] = [
+      [0, -H * 0.5, 0, 0.5, 0.62],
+      [side * 0.1, -H * 0.06, 0.02, 0.46, 0.5],
+      [side * -0.08, H * 0.28, -0.02, 0.4, 0.42],
+    ];
+    for (let i = 0; i < blobs.length; i++) {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 7), stone);
+      b.name = `rock.chunk.${side < 0 ? 'l' : 'r'}.${i}`;
+      b.scale.set(HALF_W * blobs[i][3], HALF_H * blobs[i][4], 0.15);
+      b.position.set(blobs[i][0], blobs[i][1], FRONT_Z + blobs[i][2]);
+      b.rotation.z = (i - 1) * 0.2 * side;
+      half.add(b);
+    }
+    // 内側の板。**球だけでは中央が塞げない。**
+    // 球は上下で横幅がすぼまるので、上下の球のあいだに菱形の隙間が残り、
+    // そこから体が覗いた（実測: 世界座標 x=1.15 / y=1.33 あたりで 4点）。
+    // 左右の板を中央で 0.72 ぶん重ねて、縁から下を隙間なく覆う。
+    // 開くときは半分と一緒に逃げるので、出てきた体は隠さない
+    // 幅は隠れ場所いっぱいまで取る。動物のいちばん広いところ（かに 1.22）が
+    // 板からはみ出して、外側の縁で覗けていた（局所 x = ±0.41〜0.49）。
+    // **開いても、この板は動物を隠さない。** 板の上端は局所 0.30 で、
+    // 出きった動物の足元（0.44 以上）より下にあるため
+    const slab = plate(
+      `rock.slab.${side < 0 ? 'l' : 'r'}`,
+      W * 1.1,
+      H * 1.1,
+      0.12,
+      stone,
+      -side * 0.16,
+      -H * 0.26,
+      FRONT_Z - 0.05
+    );
+    half.add(slab);
+
+    half.position.x = (side * W) / 4 - side * 0.15;
+    group.add(half);
+    halves.push(half);
+  }
+
+  // 庇（ひさし）。**動かない。**
+  //
+  // 球だけで作ると、縁のあたりで横幅がすぼまって中央に隙間ができ、
+  // そこから頭が覗いた（格子 225点で 4〜63点。いわを使う3場面すべてで出た）。
+  // 動く半分に平らな板を足しても、開いたときに一緒に逃げてしまい、
+  // 今度は出てきた体を隠してしまう。**縁のすぐ下だけを固定で覆う**のが正解。
+  // 上端は coverTopY ちょうど。ヒント（z = 0.36）はこの板より手前を通る
+  const brow = plate('rock.brow', W + 0.05, HALF_H * 0.43, 0.24, stone, 0, HALF_H * 0.785, FRONT_Z - 0.02);
+  group.add(brow);
+
+  const openX = W * 0.36;
+
+  return {
+    group,
+    coverTopY: HALF_H,
+    coverBottomY: -H * 0.5 - HALF_H * 0.62,
+    mouthWidth: W - 0.14,
+    animalZ: ANIMAL_Z,
+    hintZ: HINT_Z,
+    setOpen(t) {
+      for (let i = 0; i < halves.length; i++) {
+        const side = i === 0 ? -1 : 1;
+        halves[i].position.x = (side * W) / 4 - side * 0.15 + side * openX * t;
+        halves[i].rotation.z = -side * 0.3 * t;
+      }
+    },
+    setWobble(r) {
+      group.rotation.z = r;
+    },
+    dispose() {
+      disposeObject3D(group);
+    },
+  };
+}
+
+/* --- すいめん -------------------------------------------------------------- */
+
+/**
+ * 水面。**開く板ではなく、下がる水**。
+ *
+ * ほかの形は横に逃げるか上に開くが、ここだけは水位が下がって
+ * 中身が現れる。うみの4箇所を全部「開く」にすると単調になるので、
+ * 1つだけ違う動きにしてある。
+ */
+function createWater(p: Palette): SpotShape {
+  const group = new THREE.Group();
+
+  group.add(plate('water.back', W, H * 1.7, PLATE, standard(p.body, 0.95), 0, -H * 0.25, -HALF_D - 0.1));
+
+  // 水。**底を固定して、水位だけを下げる。**
+  //
+  // 最初は水の塊ごと下へ動かしていたが、下がりきったときに
+  // **下の段の隠れ場所まで水柱が伸びて、そこに居るかにを丸ごと覆っていた**
+  // （水柱が世界座標 y = -0.71 まで届いていた。かには -0.72〜-0.07）。
+  // 隠れ場所は 2.75 おきに並んでいるので、どの部品も自分の枠
+  // （±1.375）から出してはいけない。
+  // 底を原点にして y だけ縮めれば、水が引くようにも見えて枠からも出ない
+  const WATER_H = HALF_H - -H * 0.95; // 底（coverBottomY）から縁まで
+  const surface = new THREE.Group();
+  const body = plate('water.body', W, WATER_H, 0.16, standard(p.cover, 0.4), 0, WATER_H / 2, FRONT_Z);
+  surface.add(body);
+  // 波の縁。まっすぐな板だと「青い箱」に見える
+  for (let i = 0; i < 5; i++) {
+    const crest = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), standard(p.accent, 0.35));
+    crest.name = `water.crest.${i}`;
+    crest.scale.set(W * 0.14, 0.05, 0.09);
+    crest.position.set(-HALF_W + 0.16 + (i * (W - 0.32)) / 4, WATER_H, FRONT_Z + 0.04);
+    surface.add(crest);
+  }
+  surface.position.y = -H * 0.95;
+  group.add(surface);
+
+  return {
+    group,
+    coverTopY: HALF_H,
+    coverBottomY: -H * 0.95,
+    mouthWidth: W - 0.06,
+    animalZ: ANIMAL_Z,
+    hintZ: HINT_Z,
+    setOpen(t) {
+      // 水位が下がる。**横には動かさない。** 底は固定したまま縮める。
+      // 0.28 まで引けば、出きった動物（局所 0.44 以上）は完全に出る
+      surface.scale.y = 1 - 0.72 * t;
+    },
+    setWobble(r) {
+      group.rotation.z = r;
+    },
+    dispose() {
+      disposeObject3D(group);
+    },
+  };
+}
+
+/* --- きのほら -------------------------------------------------------------- */
+
+/**
+ * 木の洞。**観音開き**で開く。
+ *
+ * 最初は上下の唇が開く形にしていたが、上の唇が上がりきっても
+ * 出てきた動物の高さ（局所 0.46〜1.10）に重なって、**はりねずみが
+ * 一度も見えなかった**。上へ逃がすには枠（±1.375）を越える必要があり、
+ * 縦に開く形そのものが成り立たない。
+ * 横に開くのは いわ・くさむら と同じだが、**軸で回る**ので動きは違って見える。
+ */
+function createHollow(p: Palette): SpotShape {
+  const group = new THREE.Group();
+  const bark = standard(p.body, 0.95);
+
+  // 幹。洞の左右に太く
+  group.add(plate('hollow.trunk.l', 0.24, H * 2.0, D, bark, -HALF_W - 0.1, -H * 0.2, 0));
+  group.add(plate('hollow.trunk.r', 0.24, H * 2.0, D, bark, HALF_W + 0.1, -H * 0.2, 0));
+  group.add(
+    plate('hollow.back', W + 0.4, H * 2.0, PLATE, standard(p.accent, 0.95), 0, -H * 0.2, -HALF_D - 0.15)
+  );
+
+  const doors: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    // 蝶番は外側の縁。中央で 0.2 ほど重ねて隙間を作らない
+    const pivot = new THREE.Group();
+    pivot.position.set(side * HALF_W, -H * 0.24, FRONT_Z);
+    const panel = plate(
+      side < 0 ? 'hollow.door.l' : 'hollow.door.r',
+      HALF_W * 1.18,
+      H * 1.62,
+      0.1,
+      standard(p.cover, 0.9),
+      -side * HALF_W * 0.59,
+      0,
+      0
+    );
+    pivot.add(panel);
+    group.add(pivot);
+    doors.push(pivot);
+  }
+
+  return {
+    group,
+    coverTopY: HALF_H,
+    coverBottomY: -H * 0.24 - H * 0.81,
+    mouthWidth: W - 0.1,
+    animalZ: ANIMAL_Z,
+    hintZ: HINT_Z,
+    setOpen(t) {
+      // 手前に向かって開く。左右で回る向きが逆
+      doors[0].rotation.y = 1.45 * t;
+      doors[1].rotation.y = -1.45 * t;
+    },
+    setWobble(r) {
+      group.rotation.z = r;
+    },
+    dispose() {
+      disposeObject3D(group);
+    },
+  };
+}
+
+/* --- うえきばち ------------------------------------------------------------ */
+
+/** 植木鉢。生えている葉が left/right に開いて、中から出てくる */
+function createPot(p: Palette): SpotShape {
+  const group = new THREE.Group();
+
+  // 鉢。**手前に置いて、動物の足元を隠す**（下からのはみ出し対策）
+  // 鉢は高めに取る。低いと鉢の口と葉のあいだに帯が空いて、
+  // そこから体が覗く（にわとりの胴で 1点だけ残っていた）
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(HALF_W * 0.9, HALF_W * 0.64, H * 0.86, 14));
+  pot.material = standard(p.body, 0.9);
+  pot.name = 'pot.body';
+  pot.position.set(0, -H * 0.55, FRONT_Z - 0.02);
+  group.add(pot);
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(HALF_W * 0.96, HALF_W * 0.96, 0.12, 14));
+  rim.material = standard(p.accent, 0.9);
+  rim.name = 'pot.rim';
+  rim.position.set(0, -H * 0.12, FRONT_Z - 0.02);
+  group.add(rim);
+  group.add(plate('pot.back', W, H * 1.6, PLATE, standard(p.accent, 0.95), 0, -H * 0.2, -HALF_D - 0.1));
+
+  // 葉。鉢から上に生えて、開くと左右に倒れる
+  const leaves: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    const leaf = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const blade = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 7), standard(p.cover, 0.95));
+      blade.name = `pot.leaf.${side < 0 ? 'l' : 'r'}.${i}`;
+      blade.scale.set(HALF_W * 0.3, HALF_H * (0.66 - i * 0.1), 0.1);
+      blade.position.set(side * i * 0.12, H * (0.02 + i * 0.16), FRONT_Z + 0.02);
+      blade.rotation.z = side * (0.1 + i * 0.22);
+      leaf.add(blade);
+    }
+    leaf.position.x = side * 0.12;
+    group.add(leaf);
+    leaves.push(leaf);
+  }
+
+  // 中央の葉。**動かない。**
+  // 左右の葉は外へ倒れて開くので、閉じていても中央の上のほうに
+  // 隙間が残り、そこから体が覗いた（局所 y = 0.30〜0.44 で 5〜8点）。
+  // 出きった動物の足元は局所 0.44 以上なので、この葉は邪魔しない
+  const middle = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 7), standard(p.cover, 0.95));
+  middle.name = 'pot.leaf.mid';
+  middle.scale.set(HALF_W * 0.5, HALF_H * 0.72, 0.1);
+  middle.position.set(0, H * 0.16, FRONT_Z - 0.03);
+  group.add(middle);
+
+  return {
+    group,
+    coverTopY: HALF_H,
+    // 鉢の底まで。動物の足は鉢の中に隠れる
+    coverBottomY: -H * 0.55 - H * 0.43,
+    mouthWidth: W - 0.2,
+    animalZ: ANIMAL_Z,
+    hintZ: HINT_Z,
+    setOpen(t) {
+      for (let i = 0; i < leaves.length; i++) {
+        const side = i === 0 ? -1 : 1;
+        leaves[i].position.x = side * (0.12 + W * 0.3 * t);
+        leaves[i].rotation.z = side * 0.7 * t;
       }
     },
     setWobble(r) {

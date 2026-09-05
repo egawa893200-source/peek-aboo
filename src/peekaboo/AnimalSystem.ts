@@ -96,6 +96,15 @@ export interface AnimalSlot {
    * §4-5 の「予告」で行き先のほうを向かせるのに使う。
    */
   gazeTarget: THREE.Vector3 | null;
+  /**
+   * §4-2 のヒント（尻尾・耳）を縁から出すか。
+   *
+   * **モードB（§4-5）では false。** あちらのヒントは「移動そのもの」で、
+   * 外したときは正解の場所が揺れて教えてくれる（§4-6）ので、
+   * 草むらから体の一部を出す必要がない。
+   * 不変条件3 のこの扱いは**人間が決めた**（2026-09-05）。
+   */
+  showHint: boolean;
 }
 
 /** 不変条件3 を数値で見るための実測値。すべてワールド座標 */
@@ -174,6 +183,7 @@ export class AnimalSystem {
       glow: 0,
       driven: false,
       gazeTarget: null,
+      showHint: true,
     };
     this.slots.set(spot.config.id, slot);
     this.anchor(slot, spot);
@@ -267,14 +277,16 @@ export class AnimalSystem {
       // --- ヒント（§4-2） ----------------------------------------------------
       // 出はじめたら引っ込める。頭の上に尻尾が残っていたら、ただの飾りになる。
       // 移動中（`driven`）も消す。跳んでいる最中に頭の上から耳が生えたら怖い
-      built.hint.visible = !slot.driven && reveal < 0.12;
+      built.hint.visible = slot.showHint && !slot.driven && reveal < 0.12;
       // 中でもぞもぞしている感じ。隠れ場所の揺れと同じ量を、逆向きに掛ける
       if (built.hint.visible) built.hint.rotation.z = -spot.shake * 0.35;
 
       // --- 視線（§4-4 顔と目が見えることが最重要） ---------------------------
       // 移動中は行き先を見る（§4-5 の「予告」）。それ以外はカメラを見る。
       // **どちらでも必ずどこかを見ている。** 目が泳ぐと生き物に見えない
-      const gaze = slot.driven ? 1 : smoothstep(GAZE_FROM, 1, reveal);
+      // さかな・かに・たこは横向き／真上向きに作ってあるので、
+      // カメラを正面から見せると輪郭が崩れる。個体ごとに効きを変える
+      const gaze = (slot.driven ? 1 : smoothstep(GAZE_FROM, 1, reveal)) * built.gazeStrength;
       if (gaze > 0) {
         built.head.getWorldPosition(_headPos);
         _dir.subVectors(slot.gazeTarget ?? _camPos, _headPos);
@@ -311,7 +323,14 @@ export class AnimalSystem {
 
     slot.built.group.updateWorldMatrix(true, true);
 
-    _box.setFromObject(slot.built.group);
+    // ヒントを出さない個体（モードBの走り手）は、**ヒントを数に入れない**。
+    // `Box3` は `visible` を見ないので、消してあるヒントまで数えると
+    // 「画面に出ている量」が実際より多く出て、測定そのものが嘘になる
+    _box.makeEmpty();
+    for (const child of slot.built.group.children) {
+      if (!slot.showHint && child === slot.built.hint) continue;
+      _box.expandByObject(child);
+    }
     const animalTopY = _box.max.y;
     const animalBottomY = _box.min.y;
 

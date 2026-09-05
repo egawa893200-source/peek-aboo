@@ -88,7 +88,11 @@ export class SceneRoot {
     let chase: ChaseSystem | null = null;
     if (config.mode === 'chase' && config.runner && spots.runtimes.length > 0) {
       const start = spots.runtimes[0];
-      animals.spawn(start, config.runner);
+      const runner = animals.spawn(start, config.runner);
+      // モードBのヒントは「移動そのもの」（§4-5 の表）。
+      // 外したときは正解の場所が揺れて教える（§4-6）ので、
+      // くさむらから体の一部を出さない。**人間が決めた扱い**（2026-09-05）
+      if (runner) runner.showHint = false;
       chase = new ChaseSystem(spots, animals, {
         ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed } : {}),
         startSpotId: start.config.id,

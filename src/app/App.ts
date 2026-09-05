@@ -130,15 +130,31 @@ export class App {
       this.sceneId = config.id;
       this.scene.add(next.group);
 
-      // 「ばあ！」は登場の山（0.35秒後）で鳴る。押した瞬間ではない（§4-3）。
+      // 「ばあっ！」は登場の山（0.35秒後）で鳴る。押した瞬間ではない（§4-3）。
       // 連打で呼ばれたときは押した瞬間に鳴る（不変条件2「声とアピールは必ず返す」）。
-      next.spots.onVoice(() => this.audio.speak('ばあ！', 'baa'));
+      //
+      // **`speak()` ではなく `playVoice()` を使うこと。**
+      // `speak()` は読み上げ用の入口で最短間隔 1.25秒 の制限があり、
+      // 続けて別の隠れ場所を押すと声が落ちて「ばあっ！が返らない回」ができる。
+      next.spots.onVoice(() => this.audio.playVoice('baa'));
       next.spots.onPeak((spot) => this.onPeak(next, spot));
 
+      // ふたが開きはじめたら、形に合った音を返す。
+      // くさむらは葉をかき分ける「ワサワサ」（§4-5 / §4-6）
+      next.spots.onOpen((spot) => {
+        if (spot.config.kind === 'bush') this.audio.playOneShot('rustle');
+      });
+
       // §4-6。**落胆の音にしない。** とぼけた「あれ？」。
-      // ブザー・×印・暗転は使わない（外れを「失敗」にしない）
-      next.empty.onVoice(() => this.audio.speak('あれ？', 'baa'));
+      // ブザー・×印・暗転は使わない（外れを「失敗」にしない）。
+      // ここで `speak('あれ？','baa')` と書くと、**録音してある「ばあっ！」が鳴る**
+      // （`speak` は第2引数のクリップを鳴らすので、第1引数の文字は読まれない）。
+      // 空振りなのに「ばあっ！」と言うのは、いちばん紛らわしい間違いだった
+      next.empty.onVoice(() => this.audio.playOneShot('huh'));
       next.empty.onPuff(() => this.audio.playOneShot('bubble'));
+
+      // ぴょんぴょん（§4-5）。1跳ねごとに1回
+      next.chase?.onHop(() => this.audio.playOneShot('hop'));
     } finally {
       this.building = false;
     }

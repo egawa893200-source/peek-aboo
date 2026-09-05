@@ -153,6 +153,9 @@ export class ChaseSystem {
   private laps = 0;
   /** 移動中に受けたタップの数（不変条件4b の確認用） */
   private tapsWhileMoving = 0;
+  /** いま何回目の跳ねか。跳ねるたびに音を鳴らすため */
+  private hopIndex = -1;
+  private readonly hopFns: (() => void)[] = [];
 
   constructor(
     private readonly spots: SpotSystem,
@@ -171,6 +174,11 @@ export class ChaseSystem {
 
     // タップは移動に触れない。振り向くだけ（不変条件4b）
     spots.onTapped(() => this.onTapped());
+  }
+
+  /** 1跳ねごとに呼ばれる（§4-5 の「ぴょんぴょん」）。音をつけるのに使う */
+  onHop(fn: () => void): void {
+    this.hopFns.push(fn);
   }
 
   /** うさぎが居る、または向かっている隠れ場所。§4-6 のヒントはここを揺らす */
@@ -275,6 +283,7 @@ export class ChaseSystem {
   private beginHop(): void {
     this.phase = 'hop';
     this.phaseT = 0;
+    this.hopIndex = -1;
 
     const from = this.current;
     const slot = this.animals.getSlot(from.config.id);
@@ -309,6 +318,7 @@ export class ChaseSystem {
     const slot = this.animals.getSlot(from.config.id);
     const t = Math.min(1, this.phaseT / HOP_SEC);
 
+
     if (slot) {
       _from.copy(from.worldPosition);
       _from.y += slot.outY;
@@ -328,6 +338,13 @@ export class ChaseSystem {
       const dx = dest.worldPosition.x - from.worldPosition.x;
       slot.built.group.rotation.y = Math.sign(dx) * 0.7;
       slot.gazeTarget = this.startle > 0 ? null : dest.worldPosition.clone();
+    }
+
+    // 跳ねはじめるたびに1回だけ鳴らす。**毎フレームではない**
+    const index = Math.min(HOP_COUNT - 1, Math.floor(t * HOP_COUNT));
+    if (index !== this.hopIndex) {
+      this.hopIndex = index;
+      for (const fn of this.hopFns) fn();
     }
 
     // 行き先のくさむらは、着く前から開けておく。

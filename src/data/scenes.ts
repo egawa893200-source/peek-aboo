@@ -3,8 +3,12 @@
  *
  * **データだけを置く。ロジックを書かない。**
  *
- * いまは「おうち」（モードA）と「のはら」（モードB / §4-5）の2場面。
- * そと／うみ は Phase 6 で足す。
+ * 5場面。おうち／そと／うみ／のうじょう がモードA（その場に住む）、
+ * のはら だけがモードB（おいかけっこ / §4-5）。
+ *
+ * 設計書 §5-3 は4場面（おうち・そと・うみ・のはら）だが、
+ * **のうじょう を足して5場面にしたのは人間の判断**（2026-09-05）。
+ * 隠れ場所は §5-3 のとおり、どの場面も**必ず4箇所**にしてある。
  *
  * **画面上の切替バーはまだ無い**（§12 Phase 6）。のはらを見るには
  * `__peekaboo.setScene('nohara')` を使う。
@@ -43,7 +47,7 @@
  * ------------------------------------------------------------------------
  */
 
-import type { SceneConfig } from '../types';
+import type { SceneConfig } from "../types";
 
 /**
  * 隠れ場所の当たり半径の**上限**（CSS px）。設計書 §7-3 の既定値。
@@ -52,45 +56,45 @@ import type { SceneConfig } from '../types';
 const HIT_RADIUS_PX = 120;
 
 const OUCHI: SceneConfig = {
-  id: 'ouchi',
-  label: 'おうち',
-  mode: 'hideout',
+  id: "ouchi",
+  label: "おうち",
+  mode: "hideout",
   // 素材はまだ1つも無い。null なら手続き生成に落ちる（不変条件7）
   backgroundUrl: null,
   ambientSound: null,
   spots: [
     {
-      id: 'hako',
-      kind: 'box',
+      id: "hako",
+      kind: "box",
       position: [-1.15, 1.55, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       // 1体だけ。同じ場所から別の動物が出る仕掛け（§6-2）は Phase 7
-      animals: ['neko'],
+      animals: ["neko"],
     },
     {
-      id: 'kaaten',
-      kind: 'curtain',
+      id: "kaaten",
+      kind: "curtain",
       position: [1.15, 1.55, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
-      animals: ['kotori'],
+      animals: ["kotori"],
     },
     {
-      id: 'huton',
-      kind: 'blanket',
+      id: "huton",
+      kind: "blanket",
       position: [-1.15, -1.2, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
-      animals: ['nezumi'],
+      animals: ["nezumi"],
     },
     {
-      id: 'tobira',
-      kind: 'door',
+      id: "tobira",
+      kind: "door",
       position: [1.15, -1.2, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
-      animals: ['inu'],
+      animals: ["inu"],
     },
   ],
 };
@@ -113,40 +117,40 @@ const OUCHI: SceneConfig = {
  * ------------------------------------------------------------------------
  */
 const NOHARA: SceneConfig = {
-  id: 'nohara',
-  label: 'のはら',
-  mode: 'chase',
+  id: "nohara",
+  label: "のはら",
+  mode: "chase",
   backgroundUrl: null,
   ambientSound: null,
-  runner: 'usagi',
+  runner: "usagi",
   spots: [
     {
-      id: 'kusa1',
-      kind: 'bush',
+      id: "kusa1",
+      kind: "bush",
       position: [-1.15, 1.55, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
     },
     {
-      id: 'kusa2',
-      kind: 'bush',
+      id: "kusa2",
+      kind: "bush",
       position: [1.15, 1.55, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
     },
     {
-      id: 'kusa3',
-      kind: 'bush',
+      id: "kusa3",
+      kind: "bush",
       position: [-1.15, -1.2, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
     },
     {
-      id: 'kusa4',
-      kind: 'bush',
+      id: "kusa4",
+      kind: "bush",
       position: [1.15, -1.2, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
@@ -155,7 +159,163 @@ const NOHARA: SceneConfig = {
   ],
 };
 
-export const SCENES: readonly SceneConfig[] = [OUCHI, NOHARA];
+/**
+ * そと（モードA / §5-3）。
+ * くさむら・いわ・きのほら・うえきばち に、かえる・りす・はりねずみ・ちょうちょ。
+ *
+ * ヒントは 足・尻尾・鼻先・羽 で全部違う（§4-2）。
+ */
+const SOTO: SceneConfig = {
+  id: "soto",
+  label: "そと",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "kusa",
+      kind: "bush",
+      position: [-1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["kaeru"],
+    },
+    {
+      id: "iwa",
+      kind: "rock",
+      position: [1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["risu"],
+    },
+    {
+      id: "hora",
+      kind: "hollow",
+      position: [-1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["harinezumi"],
+    },
+    {
+      id: "hachi",
+      kind: "pot",
+      position: [1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["chocho"],
+    },
+  ],
+};
+
+/**
+ * うみ（モードA / §5-3）。
+ * いわ・すいめん・かいそう・つぼ に、クマノミ・たこ・かに・ぺんぎん。
+ *
+ * **かいそうは くさむら（`bush`）で作っている。**
+ * `SpotKind`（§5-1）に「かいそう」が無いため。緑の房が水中で揺れるので
+ * 見た目の違和感は小さい。Phase 9 で .glb に差し替えるときに分ける。
+ *
+ * すいめん（`water`）だけは**開くのではなく水位が下がる**。
+ * 4箇所とも同じ動きだと、どこを押しても同じに見えてしまう。
+ */
+const UMI: SceneConfig = {
+  id: "umi",
+  label: "うみ",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "suimen",
+      kind: "water",
+      position: [-1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["kumanomi"],
+    },
+    {
+      id: "kaisou",
+      kind: "bush",
+      position: [1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["tako"],
+    },
+    {
+      id: "umiiwa",
+      kind: "rock",
+      position: [-1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["kani"],
+    },
+    {
+      id: "tsubo",
+      kind: "pot",
+      position: [1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["pengin"],
+    },
+  ],
+};
+
+/**
+ * のうじょう（モードA）。
+ *
+ * 設計書 §5-3 には無い5場面目。**人間が足すと決めた**（2026-09-05）。
+ * うし・ぶた・ひつじ・にわとり は、1歳半でも輪郭で見分けやすく、
+ * ほかの場面の動物（けもの4体・とり2体）とも混ざらない。
+ */
+const NOUJOU: SceneConfig = {
+  id: "noujou",
+  label: "のうじょう",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "koya",
+      kind: "door",
+      position: [-1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["ushi"],
+    },
+    {
+      id: "wara",
+      kind: "bush",
+      position: [1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["buta"],
+    },
+    {
+      id: "saku",
+      kind: "rock",
+      position: [-1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["hitsuji"],
+    },
+    {
+      id: "okego",
+      kind: "pot",
+      position: [1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["niwatori"],
+    },
+  ],
+};
+
+export const SCENES: readonly SceneConfig[] = [
+  OUCHI,
+  SOTO,
+  UMI,
+  NOUJOU,
+  NOHARA,
+];
 
 export const DEFAULT_SCENE_ID = OUCHI.id;
 

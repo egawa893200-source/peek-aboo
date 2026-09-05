@@ -619,3 +619,48 @@ test.describe('§4-5 移動モード', () => {
     expect(timeline.done).toBeLessThanOrEqual(5.2);
   });
 });
+
+
+test.describe('全場面', () => {
+  test('どの場面でも起動して、どこを押しても反応が返る', async ({ page }) => {
+    test.setTimeout(120_000);
+    await boot(page);
+    const ids = await page.evaluate(() => window.__peekaboo.getSceneIds());
+    // おうち・そと・うみ・のうじょう・のはら
+    expect(ids.length).toBeGreaterThanOrEqual(5);
+
+    const lines: string[] = [];
+    for (const id of ids) {
+      await page.evaluate((s) => window.__peekaboo.setScene(s), id);
+      await page.waitForFunction((s) => window.__peekaboo.getSceneId() === s, id);
+      await page.waitForFunction(() => window.__peekaboo.getSpots().length === 4);
+
+      const spots = await spotCenters(page);
+      // §3-2: 当たり判定どうしが重ならない
+      for (let i = 0; i < spots.length; i++) {
+        for (let j = i + 1; j < spots.length; j++) {
+          const d = Math.hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y);
+          expect(spots[i].r + spots[j].r, `${id}: ${spots[i].id}-${spots[j].id}`).toBeLessThan(d);
+        }
+      }
+
+      // 4箇所すべてを押して、1回残らず反応が返ること（不変条件1・3b）
+      const before = await page.evaluate(() => window.__peekaboo.getHitCount());
+      for (const spot of spots) await page.mouse.click(spot.x, spot.y);
+      const after = await page.evaluate(() => window.__peekaboo.getHitCount());
+      expect(after - before, `${id} で取りこぼしたタップがある`).toBe(4);
+
+      await page.waitForTimeout(900);
+      const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());
+      lines.push(`  ${id.padEnd(8)} 三角形 ${String(info.triangles).padStart(6)}  draw call ${info.calls}`);
+
+      // **fps は合否にしない**（§10-2）。GPU に依存しない量だけを見る
+      expect(info.triangles, id).toBeGreaterThan(0);
+      expect(info.triangles, id).toBeLessThan(20_000);
+      expect(info.calls, id).toBeLessThan(150);
+
+      await page.waitForTimeout(2600); // 次の場面へ行く前に引っ込めておく
+    }
+    console.log(['[実測] 場面ごとの描画量', ...lines].join('\n'));
+  });
+});

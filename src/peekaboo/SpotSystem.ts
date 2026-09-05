@@ -75,6 +75,9 @@ const SHAKE_AMP_RAD = 0.085;
  */
 const HIT_GUARD_PX = 1;
 
+/** ふたが「開きはじめた」とみなす開き具合。音を鳴らすきっかけに使う */
+const OPEN_EVENT_AT = 0.08;
+
 /**
  * 画面座標での近接判定に必要なものだけ（§7-3）。
  *
@@ -131,6 +134,8 @@ export interface SpotRuntime {
    * 2箇所から呼ぶと、片方が毎フレーム上書きして「開かない」が起きる。
    */
   extraOpen: number;
+  /** 前フレームのふたの開き具合。開きはじめを1回だけ拾うために持つ */
+  openPrev: number;
 }
 
 export type SpotEvent = (spot: SpotRuntime) => void;
@@ -150,6 +155,7 @@ export class SpotSystem {
   private readonly peakFns: SpotEvent[] = [];
   private readonly emptyFns: SpotEvent[] = [];
   private readonly tapFns: SpotEvent[] = [];
+  private readonly openFns: SpotEvent[] = [];
 
   /** 応答を返したタップの総数。**タップ総数と必ず一致すること**（不変条件1） */
   private responses = 0;
@@ -188,6 +194,7 @@ export class SpotSystem {
         // モードBでは誰が入居しているかを `SceneRoot` が実行時に決める
         occupied: config.animals.length > 0,
         extraOpen: 0,
+        openPrev: 0,
       };
       this.runtimes.push(runtime);
       shape.setOpen(0);
@@ -223,6 +230,15 @@ export class SpotSystem {
    */
   onTapped(fn: SpotEvent): void {
     this.tapFns.push(fn);
+  }
+
+  /**
+   * ふたが**開きはじめた**（1回だけ）。
+   * 中身が居るかどうかによらず鳴らす音（くさむらのワサワサなど）に使う。
+   * 開いている間ずっとではなく、閾値を上向きに跨いだ瞬間だけ。
+   */
+  onOpen(fn: SpotEvent): void {
+    this.openFns.push(fn);
   }
 
   find(id: string): SpotRuntime | null {
@@ -363,7 +379,11 @@ export class SpotSystem {
     // 「引っかかっている」ように読める。
     // `extraOpen`（§4-6 の空振り、§4-5 の到着）とは**大きいほうを採る**。
     // 足し算にすると 1 を超えて、ふたが裏返るところまで回る
-    s.shape.setOpen(Math.max(Math.min(1, s.reveal * 1.35), s.extraOpen));
+    const open = Math.max(Math.min(1, s.reveal * 1.35), s.extraOpen);
+    // 開きはじめを1回だけ拾う。毎フレーム鳴らすと「シャー」と鳴りっぱなしになる
+    if (open > OPEN_EVENT_AT && s.openPrev <= OPEN_EVENT_AT) this.emit(this.openFns, s);
+    s.openPrev = open;
+    s.shape.setOpen(open);
 
     s.clock += dt;
     const t = s.clock;
@@ -497,6 +517,7 @@ export class SpotSystem {
     this.peakFns.length = 0;
     this.emptyFns.length = 0;
     this.tapFns.length = 0;
+    this.openFns.length = 0;
     this.group.removeFromParent();
   }
 
