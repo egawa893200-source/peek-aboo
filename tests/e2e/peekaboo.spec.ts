@@ -32,7 +32,7 @@ async function boot(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__peekaboo.getFrameCount() > 10);
   // **ここが本題。** `loop.start()` が終わっていても場面はまだ空のことがある
   await page.waitForFunction(() => window.__peekaboo.isReady());
-  await page.waitForFunction(() => window.__peekaboo.getSpots().length === 4);
+  await page.waitForFunction(() => window.__peekaboo.getSpots().length >= 4);
 }
 
 /** 隠れ場所の画面上の中心。当たり判定はここから測る（§7-3） */
@@ -412,7 +412,7 @@ test.describe('§4-6 空の隠れ場所（不変条件3b）', () => {
     const answer = await answerCenter(page);
     const spots = await spotCenters(page);
     const empties = spots.filter((s) => s.id !== answer.id);
-    expect(empties).toHaveLength(3);
+    expect(empties).toHaveLength(spots.length - 1);
 
     for (const spot of empties) {
       const before = await page.evaluate(() => window.__peekaboo.getEmpty()!.taps);
@@ -448,25 +448,43 @@ test.describe('§4-6 空の隠れ場所（不変条件3b）', () => {
     const answer = await answerCenter(page);
     const miss = (await spotCenters(page)).find((s) => s.id !== answer.id)!;
 
-    const shook = await page.evaluate(
+    const result = await page.evaluate(
       async ({ mx, my, answerId }) => {
         const api = window.__peekaboo;
+        const shakeOf = () => api.getSpots().find((x) => x.id === answerId)!.callShake;
+        const sim0 = api.getSimulatedSeconds();
         api.tap(mx, my);
-        // §4-6 の 0.50s に正解が揺れる。少し余裕をみて見張る
-        const deadline = performance.now() + 1200;
+
+        // §4-6 の 0.50s に正解が揺れる。**更新時計で測る**（§10-2）
         let max = 0;
-        while (performance.now() < deadline) {
+        let startedAt = -1;
+        // 揺れはじめてから 1.0秒たったところでも、まだ揺れているか
+        let after1s = -1;
+        const wall0 = performance.now();
+        while (performance.now() - wall0 < 12000) {
           await new Promise((r) => requestAnimationFrame(r));
-          const s = api.getSpots().find((x) => x.id === answerId)!;
-          max = Math.max(max, s.shake);
+          const v = shakeOf();
+          max = Math.max(max, v);
+          if (startedAt < 0 && v > 0) startedAt = api.getSimulatedSeconds();
+          if (startedAt > 0 && after1s < 0 && api.getSimulatedSeconds() - startedAt >= 1.0) {
+            after1s = v;
+          }
+          if (after1s >= 0 && api.getSimulatedSeconds() - sim0 > 3.5) break;
         }
-        return max;
+        return { max, after1s, startedAfter: startedAt - sim0 };
       },
       { mx: miss.x, my: miss.y, answerId: answer.id }
     );
 
     // **必ず正解を教える**（§4-6）。1歳半に探させるのは早い
-    expect(shook).toBeGreaterThan(0.5);
+    expect(result.max).toBeGreaterThan(0.9);
+    // §4-6 の 0.50s に揺れはじめる
+    expect(result.startedAfter).toBeGreaterThan(0.3);
+    expect(result.startedAfter).toBeLessThan(0.8);
+    // **押した実感の「ぷるっ」（0.3秒）より長く揺れる。**
+    // 同じ長さにしていたときは、空振りの演出を見ている途中に終わって
+    // 「どこが揺れたのか分からない」になった
+    expect(result.after1s, '1秒後にはもう揺れていない').toBeGreaterThan(0.2);
   });
 });
 
@@ -566,8 +584,10 @@ test.describe('§4-5 移動モード', () => {
     let immediate = 0;
     for (let i = 1; i < history.length; i++) if (history[i] === history[i - 1]) immediate++;
     expect(immediate, `履歴: ${history.join(' → ')}`).toBe(0);
-    // 4箇所すべてを踏んでいる（順番が固定になっていない）
-    expect(new Set(history).size).toBe(4);
+    // 全部の草むらを踏んでいる（順番が固定になっていない）
+    expect(new Set(history).size).toBe(
+      (await page.evaluate(() => window.__peekaboo.getSpots().length))
+    );
     console.log(`[実測] 20周の行き先: ${history.join(' → ')}`);
   });
 
@@ -633,7 +653,8 @@ test.describe('全場面', () => {
     for (const id of ids) {
       await page.evaluate((s) => window.__peekaboo.setScene(s), id);
       await page.waitForFunction((s) => window.__peekaboo.getSceneId() === s, id);
-      await page.waitForFunction(() => window.__peekaboo.getSpots().length === 4);
+      // 隠れ場所の数は場面で違う（モードAは4、のはらは5）
+      await page.waitForFunction(() => window.__peekaboo.getSpots().length >= 4);
 
       const spots = await spotCenters(page);
       // §3-2: 当たり判定どうしが重ならない
@@ -648,7 +669,7 @@ test.describe('全場面', () => {
       const before = await page.evaluate(() => window.__peekaboo.getHitCount());
       for (const spot of spots) await page.mouse.click(spot.x, spot.y);
       const after = await page.evaluate(() => window.__peekaboo.getHitCount());
-      expect(after - before, `${id} で取りこぼしたタップがある`).toBe(4);
+      expect(after - before, `${id} で取りこぼしたタップがある`).toBe(spots.length);
 
       await page.waitForTimeout(900);
       const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());

@@ -69,6 +69,21 @@ const HINT_AMP_RAD = 0.035;
 const SHAKE_HZ = 9;
 const SHAKE_AMP_RAD = 0.085;
 
+/* --- 「こっちだよ」の揺れ（§4-6）------------------------------------------
+ *
+ * 空振りのあとに正解の場所を教える揺れ。**押した実感の「ぷるっ」とは別枠**。
+ *
+ * 最初は「ぷるっ」と同じ 0.3秒で消していたが、
+ * 空振りの演出（ふたが開く → 誰もいない → 正解が揺れる）を見ている途中に
+ * 終わってしまい、**どこが揺れたのか分からない**と言われた。
+ * 1.6秒かけて、少しゆっくり（5Hz）、振幅も大きめに揺らす。
+ *
+ * 光ではなく動きなので、不変条件6（明滅は1秒に3回まで）には掛からない。
+ * ---------------------------------------------------------------------- */
+export const CALL_DECAY_SEC = 1.6;
+const CALL_HZ = 5;
+const CALL_AMP_RAD = 0.105;
+
 /**
  * 当たり判定どうしのすき間（CSS px）。
  * 0 にすると円が接した1点で両方に当たるので、必ず正の値を残す。
@@ -106,8 +121,14 @@ export interface SpotRuntime {
   delay: number;
   /** `out` でいる残り秒 */
   idle: number;
-  /** 「ぷるっ」の残量 0..1 */
+  /** 「ぷるっ」の残量 0..1。押した実感（§4-3 の 0.00s） */
   shake: number;
+  /**
+   * 「こっちだよ」の残量 0..1（§4-6）。
+   * **`shake` とは別に持つ。** 押した実感は短く、正解を教える揺れは長い。
+   * 1つにまとめると、どちらかの長さを諦めることになる。
+   */
+  callShake: number;
   /** この隠れ場所が受けたタップの総数 */
   taps: number;
   /**
@@ -187,6 +208,7 @@ export class SpotSystem {
         delay: 0,
         idle: 0,
         shake: 0,
+        callShake: 0,
         taps: 0,
         // 黄金比でずらす。等間隔にすると4つが周期的に揃って見える
         clock: (i * 0.618) % 1 * 10,
@@ -367,6 +389,7 @@ export class SpotSystem {
     }
 
     s.shake = Math.max(0, s.shake - dt / SHAKE_DECAY_SEC);
+    s.callShake = Math.max(0, s.callShake - dt / CALL_DECAY_SEC);
   }
 
   /** 出たまま待つ秒数。モードBは短い（§4-5） */
@@ -391,7 +414,9 @@ export class SpotSystem {
     // 隠れているあいだだけ、ゆっくり揺らして「中に居る」ことを伝える（§4-2）
     const hint = s.state === 'hidden' ? Math.sin(t * HINT_HZ * Math.PI * 2) * HINT_AMP_RAD : 0;
     const shake = Math.sin(t * SHAKE_HZ * Math.PI * 2) * SHAKE_AMP_RAD * s.shake;
-    s.shape.setWobble(hint + shake);
+    // 「こっちだよ」（§4-6）。ゆっくり長く揺れる
+    const call = Math.sin(t * CALL_HZ * Math.PI * 2) * CALL_AMP_RAD * s.callShake;
+    s.shape.setWobble(hint + shake + call);
   }
 
   /* --- 当たり判定（§7-3） ------------------------------------------------ */
@@ -503,6 +528,7 @@ export class SpotSystem {
       occupied: s.occupied,
       openAmount: Math.max(Math.min(1, s.reveal * 1.35), s.extraOpen),
       shake: s.shake,
+      callShake: s.callShake,
       screenX: this.sx[i],
       screenY: this.sy[i],
       configuredRadiusPx: s.config.hitRadiusPx,
@@ -536,6 +562,8 @@ export interface SpotSnapshot {
   /** ふたの開き具合 0..1。§4-6 の空振りは `reveal` が 0 のまま、ここだけ動く */
   openAmount: number;
   shake: number;
+  /** §4-6「こっちだよ」の揺れの残量。押した実感の `shake` とは別枠 */
+  callShake: number;
   screenX: number;
   screenY: number;
   configuredRadiusPx: number;

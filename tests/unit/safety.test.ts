@@ -47,6 +47,7 @@ import {
   APPEAR_DELAY_SEC,
   HIDE_DUR_SEC,
   OUT_IDLE_SEC,
+  CALL_DECAY_SEC,
   CHASE_OUT_IDLE_SEC,
   PEAK_AT_SEC,
   SpotSystem,
@@ -232,9 +233,9 @@ describe('不変条件1 — 無反応を作らない', () => {
   it.todo('隠れ場所から外れた場所を押しても、波紋が必ず出る');
   it('空の隠れ場所を押しても反応が返る（不変条件3b）', () => {
     const { spots, chase, empty, advance } = chaseRig();
-    // うさぎが居ない3箇所。**のはらでは4回に3回がここ**（§4-6）
+    // うさぎが居ない箇所。**のはらでは5回に4回がここ**（§4-6）
     const emptySpots = spots.runtimes.filter((s) => s !== chase.getAnswerSpot());
-    expect(emptySpots).toHaveLength(3);
+    expect(emptySpots).toHaveLength(spots.runtimes.length - 1);
 
     for (const spot of emptySpots) {
       expect(spot.occupied, spot.config.id).toBe(false);
@@ -245,10 +246,10 @@ describe('不変条件1 — 無反応を作らない', () => {
       // 押した実感（§4-3 の 0.00s）
       expect(spot.shake, spot.config.id).toBeGreaterThan(0);
     }
-    expect(empty.getStartedCount()).toBe(3);
-    expect(empty.getTapCount()).toBe(3);
+    expect(empty.getStartedCount()).toBe(emptySpots.length);
+    expect(empty.getTapCount()).toBe(emptySpots.length);
     // 応答を返したタップ数が、押した数と一致する
-    expect(spots.getResponseCount()).toBe(3);
+    expect(spots.getResponseCount()).toBe(emptySpots.length);
 
     // ふたが開く（§4-6 の 0.00s）
     advance(0.2);
@@ -267,17 +268,23 @@ describe('不変条件1 — 無反応を作らない', () => {
     const miss = spots.runtimes.find((s) => s !== answer)!;
 
     spots.tap(miss);
-    // 揺れる前に、押した側の「ぷるっ」を減衰させきる
     advance(EMPTY_HINT_AT_SEC - 0.05);
-    const before = answer.shake;
+    expect(answer.callShake).toBe(0);
 
     advance(0.1);
     // **必ず正解を教える**（§4-6「1歳半に探させるのは早い」）
-    expect(answer.shake).toBeGreaterThan(before);
-    expect(answer.shake).toBeGreaterThan(0.5);
+    expect(answer.callShake).toBeGreaterThan(0.9);
     // 明滅ではなく揺れ（不変条件6）。開いてはいない
     expect(answer.extraOpen).toBe(0);
     expect(answer.reveal).toBe(0);
+
+    // **押した実感の「ぷるっ」より長く揺れること。**
+    // 同じ 0.3秒で消していたときは、空振りの演出を見ている途中に終わって
+    // 「どこが揺れたのか分からない」になった
+    advance(1.0);
+    expect(answer.callShake, '1秒後にはもう揺れていない').toBeGreaterThan(0.2);
+    advance(CALL_DECAY_SEC);
+    expect(answer.callShake, '揺れっぱなしになっている').toBe(0);
   });
 
   it('空の隠れ場所を連打しても、シーケンスは毎回最後まで走る', () => {
@@ -591,7 +598,7 @@ describe('不変条件3 — 隠れていても必ず見えている', () => {
 
       for (const spot of spots.runtimes) {
         const slot = animals.getSlot(spot.config.id);
-        if (!slot) continue; // のはらの空の3箇所（不変条件3 の例外）
+        if (!slot) continue; // のはらの空の箇所（不変条件3 の例外）
         spots.group.updateWorldMatrix(true, true);
 
         // ヒントは見えていて当たり前なので、体だけの矩形を取る
@@ -641,7 +648,7 @@ describe('不変条件3 — 隠れていても必ず見えている', () => {
       rigging.advance(0.5);
       for (const spot of rigging.spots.runtimes) {
         const e = rigging.animals.getExposure(spot);
-        if (!e) continue; // のはらの空の3箇所（不変条件3 の例外）
+        if (!e) continue; // のはらの空の箇所（不変条件3 の例外）
         expect(e.bottomFraction, `${spot.config.id} が下にはみ出している`).toBeLessThan(0.01);
       }
     }
@@ -867,8 +874,8 @@ describe('§4-5 移動モード', () => {
     }
     expect(pingPong, `履歴: ${history.join(' → ')}`).toBe(0);
 
-    // 順番を固定にしない（§4-5）。20周まわせば4箇所すべてを踏む
-    expect(new Set(history).size).toBe(4);
+    // 順番を固定にしない（§4-5）。20周まわせば全部の草むらを踏む
+    expect(new Set(history).size).toBe(NOHARA.spots.length);
   });
 
   it('種を変えても、即戻りは 0 回のまま', () => {
@@ -1051,9 +1058,44 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
   // 何度も見落とした。1場面ずつ書かず、`SCENES` を回すこと。
   // ==========================================================================
 
-  it.each(ALL_SCENES)('%s: 隠れ場所がちょうど4箇所ある（§5-3）', (id) => {
+  it.each(HIDEOUT_SCENES)('%s: 隠れ場所がちょうど4箇所ある（§5-3）', (id) => {
     // 4箇所より多くすると1つあたりが小さくなり、1歳半の指では押しにくくなる
     expect(findScene(id).spots).toHaveLength(4);
+  });
+
+  it('のはらだけ5箇所（人間が決めた）', () => {
+    // §5-3 は「4箇所より多くしない」だが、モードBは「どこへ行ったかを追う」
+    // 遊びなので、行き先が1つ多いほうが追いがいがある。**人間が決めた**（2026-09-05）。
+    // 代わりに当たり判定は 101.4px → 90.1px に縮む（`data/scenes.ts` の実測）。
+    // モードAの場面は4箇所のままであることを、上のテストが見張っている
+    expect(findScene('nohara').spots).toHaveLength(5);
+  });
+
+  it('同じ動物が2つの場面に出ていない', () => {
+    // 場面が違っても同じ動物が出てくると「新しい場所」に見えない。
+    // 常駐と走り手（モードB）の両方を数える
+    const used: string[] = [];
+    for (const scene of SCENES) {
+      for (const spot of scene.spots) used.push(...spot.animals);
+      if (scene.runner) used.push(scene.runner);
+    }
+    const dup = used.filter((v, i) => used.indexOf(v) !== i);
+    expect(dup, `重複: ${dup.join(', ')}`).toEqual([]);
+    // 使っている動物が、定義してある動物とずれていないことも見る
+    for (const id of used) expect(ANIMALS.some((a) => a.id === id), id).toBe(true);
+  });
+
+  it('輪郭の指定が同じ動物が2体いない', () => {
+    // **色だけ違う動物は「同じ動物」に見える**（§5-2）。
+    // はりねずみを、ねずみと同じ「丸い耳＋とがった鼻」で作っていたときに
+    // 実際にそう見えた。体の作り・頭の上・鼻・尾・表面の組み合わせで見る
+    const seen = new Map<string, string>();
+    for (const a of ANIMALS) {
+      const key = [a.bodyPlan, a.headTop, a.snout, a.tail, a.coat ?? 'plain'].join('/');
+      const other = seen.get(key);
+      expect(other, `${a.id} と ${other} が同じ輪郭（${key}）`).toBeUndefined();
+      seen.set(key, a.id);
+    }
   });
 
   it.each(ALL_SCENES)('%s: どの隠れ場所を押しても反応が返る（不変条件1・3b）', (id) => {
@@ -1062,7 +1104,7 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
       expect(spots.tap(spot), `${id}/${spot.config.id}`).toBe(true);
       expect(spot.shake, `${id}/${spot.config.id}`).toBeGreaterThan(0);
     }
-    expect(spots.getResponseCount()).toBe(4);
+    expect(spots.getResponseCount()).toBe(spots.runtimes.length);
   });
 
   it.each(HIDEOUT_SCENES)('%s: 押すと必ず out まで到達する（§4-1）', (id) => {
@@ -1192,7 +1234,7 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
       const animal = ANIMALS.find((a) => a.id === spot.animals[0]);
       return animal?.hintPart;
     });
-    expect(new Set(parts).size, `${id}: ${parts.join(' / ')}`).toBe(4);
+    expect(new Set(parts).size, `${id}: ${parts.join(' / ')}`).toBe(parts.length);
   });
 
   it.each(ALL_SCENES)('%s: 当たり判定どうしが重ならない（§3-2）', (id) => {

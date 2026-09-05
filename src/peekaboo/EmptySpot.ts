@@ -41,8 +41,14 @@ export const EMPTY_CLOSE_SEC = 0.3;
 /** ひと通り */
 export const EMPTY_TOTAL_SEC = EMPTY_CLOSE_AT_SEC + EMPTY_CLOSE_SEC;
 
-/** 正解を知らせる揺れの強さ。§4-2 のヒントと同じ見え方にする */
-const HINT_SHAKE = 0.85;
+/**
+ * 正解を知らせる揺れの強さ。
+ * **押した実感の「ぷるっ」とは別枠**（`SpotRuntime.callShake`）。
+ * あちらは 0.3秒で消えるが、こちらは 1.6秒かけて揺れる。
+ * 短いと、空振りの演出を見ている途中に終わってしまい、
+ * どこが揺れたのか分からない。
+ */
+const CALL_STRENGTH = 1;
 
 interface Run {
   readonly spot: SpotRuntime;
@@ -123,7 +129,7 @@ export class EmptySpot {
         // **必ず正解を教える**（§4-6）。押した場所そのものが正解だったときは、
         // すでに「ぷるっ」が返っているので二重に揺らさない
         if (run.answer && run.answer !== run.spot) {
-          run.answer.shake = Math.max(run.answer.shake, HINT_SHAKE);
+          run.answer.callShake = Math.max(run.answer.callShake, CALL_STRENGTH);
         }
       }
 

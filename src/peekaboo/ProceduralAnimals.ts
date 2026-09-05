@@ -795,10 +795,11 @@ function addCoat(
 ): void {
   switch (cfg.coat ?? 'plain') {
     case 'spiky':
-      // はりねずみのとげ。背中に円錐を並べる
-      for (let i = 0; i < 9; i++) {
-        const a = -1.1 + (2.2 * i) / 8;
-        const spine = cone(p.dark, w * 0.06, w * 0.3, 5);
+      // はりねずみのとげ。背中に円錐を並べる。
+      // **耳を出さないぶん、ここが唯一の突起**なので数と長さを稼ぐ
+      for (let i = 0; i < 11; i++) {
+        const a = -1.25 + (2.5 * i) / 10;
+        const spine = cone(p.dark, w * 0.06, w * 0.42, 5);
         spine.position.set(
           Math.sin(a) * w * 0.42,
           torsoH * 0.72 + Math.cos(a) * torsoH * 0.2,
