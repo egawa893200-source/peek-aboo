@@ -158,6 +158,23 @@ npm run verify       # typecheck + test + test:e2e
 `ScreenProjector.distancePx()`（ワールド座標→画面座標の距離）で判定する。
 既定の当たり半径は 120px。
 
+### 当たり判定の半径は、定数では決められない（このプロジェクトの実測）
+
+設計書 §7-3 の既定 120px を 2×2 の4箇所に当てると、**どの画面でも重なる**。
+
+| 端末 | いちばん近い組 | 120+120 に対して |
+|---|---|---|
+| Pixel 7 412×839 | 204.8px | 35.2px 食い込む |
+| iPhone 12 390×750 | 183.0px | 57.0px 食い込む |
+| 360×600 | 146.4px | 93.6px 食い込む |
+| 844×390（横持ち） | 118.7px | 121.3px 食い込む |
+
+ワールド座標を固定したまま画面の大きさだけ変わるので、**どんな定数を選んでも
+全端末では成立しない**。`SpotConfig.hitRadiusPx` は上限として持ち、
+`SpotSystem.radiusAt()` が隣との距離を見て縮める。
+**下限は設けていない。** 下限が効いた瞬間に円が重なって、
+「押したのに隣が反応する」（みずのなかの貝と岩）が復活するため。
+
 ### 当たり判定どうしの距離を測る
 
 カニとエビが両方 y = -3.34 の 0.16m 差で置かれ、実機で重なって見えた。
@@ -254,16 +271,19 @@ Netlify（`netlify.toml`）。`main` に push すると自動で公開される�
 
 ## いまの状態
 
-**Phase 1 の「移植」まで完了。** 設計書 §12 の Phase 1 の残りから始める。
+**Phase 1 完了。** 設計書 §12 の Phase 2 から始める。
 
 入っているもの:
 - `core/` `ui/` `pwa/` の移植（実機で検証済み）
-- `App` の配線と、タップ → 波紋 ＋「ばあ！」の声
-- `types.ts`（§5-1 のデータ構造）
+- `SpotSystem` / `AnimalSystem` / `SpotShapes` / `ProceduralAnimals` / `SceneRoot`
+- `data/scenes.ts`（おうち1場面・隠れ場所4箇所）/ `data/animals.ts`（4体）
+- §4-1 の状態遷移。タップ → 出る → 引っ込む が動く
+- `tests/unit/safety.test.ts` の中身（Phase 1 で判定できるぶん）と E2E 15件
+- 素材はゼロのまま。`public/` は空で動く（不変条件7）
 
 入っていないもの:
-- `SpotSystem` / `AnimalSystem`（隠れ場所と動物。これが本体）
-- `data/scenes.ts` / `data/animals.ts`
+- `RevealEffect`（登場の粒子。Phase 2）
 - `ChaseSystem` / `EmptySpot`（§4-5 / §4-6。**Phase 3 で早めに作る**）
-- テストの中身（`tests/unit/safety.test.ts` は雛形だけ）
-- 素材（モデル・背景・アイコン）はゼロ。`public/` は空
+- `Background`／場面切替バー／残り3場面（Phase 6）
+- `Surprise`（§6-3。Phase 7）
+- `safety.test.ts` に残した `it.todo` 6件（Phase 3 のぶんと、DOM が要るぶん）
