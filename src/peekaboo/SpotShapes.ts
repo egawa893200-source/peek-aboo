@@ -1,11 +1,12 @@
 /**
  * 隠れ場所の手続き生成（設計書 §9 / 不変条件7）
  *
- * `public/` が空でも動くように、箱・カーテン・ふとん・とびら を
- * 箱と円柱だけで組み立てる。Blender の .glb に差し替えるのは Phase 9。
+ * `public/` が空でも動くように、はこ・カーテン・ふとん・とびら（おうち）と
+ * くさむら（のはら）を、箱と球と円錐だけで組み立てる。
+ * Blender の .glb に差し替えるのは Phase 9。
  *
  * ------------------------------------------------------------------------
- * **4種類とも同じ約束で作ってある。** ここを揃えておかないと
+ * **どの形も同じ約束で作ってある。** ここを揃えておかないと
  * `AnimalSystem` が隠れ場所ごとに分岐だらけになる。
  *
  *  - 原点は隠れ場所の**中心**（`SpotConfig.position` がここに来る）
@@ -70,6 +71,16 @@ export interface SpotShape {
   readonly group: THREE.Group;
   /** 動物を隠している板の上端（group ローカル座標） */
   readonly coverTopY: number;
+  /**
+   * 隠している板の**下端**（group ローカル座標）。
+   *
+   * ここより下に動物がはみ出すと、**隠れ場所の下から体が見える**。
+   * 上端しか見ていなかったせいで、うさぎ（体高 1.38）を
+   * くさむら（当時 1.05）に入れたときに、下から白い体が飛び出していた。
+   * 縁より上の量は正しかったので、**数値のテストは通っていた**。
+   * いまは `tests/unit/safety.test.ts` が下側もはみ出しを測る。
+   */
+  readonly coverBottomY: number;
   /** 開口部の幅。動物の幅はこれより狭くないと、隠れきらない（§4-2） */
   readonly mouthWidth: number;
   /** 動物を置く z（group ローカル座標）。必ず前板より奥 */
@@ -195,8 +206,10 @@ export function createSpotShape(kind: SpotKind): SpotShape {
       return createBlanket(palette);
     case 'door':
       return createDoor(palette);
+    case 'bush':
+      return createBush(palette);
     default:
-      // box / bush / rock / water / hollow / pot は今回まだ使わない。
+      // rock / water / hollow / pot は今回まだ使わない。
       // 箱で代役を立てて、押しても無反応にはしない
       return createBox(palette);
   }
@@ -237,6 +250,7 @@ function createBox(p: Palette): SpotShape {
     coverTopY: HALF_H,
     mouthWidth: W - PLATE * 2,
     animalZ: ANIMAL_Z,
+    coverBottomY: -HALF_H,
     hintZ: HINT_Z_BOX,
     setOpen(t) {
       hinge.rotation.x = CLOSED + (OPEN - CLOSED) * t;
@@ -294,6 +308,7 @@ function createCurtain(p: Palette): SpotShape {
     coverTopY: HALF_H,
     mouthWidth: W - 0.1,
     animalZ: ANIMAL_Z,
+    coverBottomY: -HALF_H,
     hintZ: HINT_Z,
     setOpen(t) {
       const x = closedX + (openX - closedX) * t;
@@ -334,6 +349,7 @@ function createBlanket(p: Palette): SpotShape {
     coverTopY: HALF_H,
     mouthWidth: W - 0.08,
     animalZ: ANIMAL_Z,
+    coverBottomY: -HALF_H,
     hintZ: HINT_Z,
     setOpen(t) {
       hinge.rotation.x = CLOSED + (OPEN - CLOSED) * t;
@@ -387,9 +403,114 @@ function createDoor(p: Palette): SpotShape {
     coverTopY: HALF_H,
     mouthWidth: panelW,
     animalZ: ANIMAL_Z,
+    coverBottomY: -HALF_H,
     hintZ: HINT_Z,
     setOpen(t) {
       hinge.rotation.y = CLOSED + (OPEN - CLOSED) * t;
+    },
+    setWobble(r) {
+      group.rotation.z = r;
+    },
+    dispose() {
+      disposeObject3D(group);
+    },
+  };
+}
+
+/* --- くさむら -------------------------------------------------------------- */
+
+/**
+ * 左右に分かれる草むら（のはら / §5-3）。
+ *
+ * **のはらは4箇所とも同じ形にする。** 手抜きではなく、
+ * 形が4種類あると移動先ではなく形のほうを見てしまうため（§5-3）。
+ * 「どこに入ったか」だけに注意を向けさせたい。
+ *
+ * 葉の房は左右に開く。カーテンと同じ理屈で、**中央に隙間を空けない**
+ * （空けると中の体が丸見えになる）。
+ */
+function createBush(p: Palette): SpotShape {
+  const group = new THREE.Group();
+  const leaf = standard(p.cover, 0.95);
+  const deep = standard(p.body, 0.95);
+
+  // 奥の茂み。葉が開いたときに背景が抜けないように。
+  // **下に深く取る。** うさぎは体高 1.38 あって、箱の高さ 1.05 には収まらない
+  const mound = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), deep);
+  mound.name = 'bush.mound';
+  mound.scale.set(HALF_W * 1.05, HALF_H * 1.55, 0.26);
+  mound.position.set(0, -H * 0.24, -HALF_D - 0.1);
+  group.add(mound);
+
+  // 前の房。左右2つ。1つを4個の球で作ると、輪郭がぼこぼこして草に見える。
+  // いちばん下の球は、うさぎの足元まで隠すためのもの
+  const bunches: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    const bunch = new THREE.Group();
+    const blobs: [number, number, number, number][] = [
+      [side * 0.06, -H * 0.56, 0.02, 0.74],
+      [0, -H * 0.12, 0, 0.62],
+      [side * 0.2, H * 0.16, 0.03, 0.62],
+      [side * -0.14, H * 0.2, -0.02, 0.62],
+    ];
+    for (let i = 0; i < blobs.length; i++) {
+      const blob = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), leaf);
+      blob.name = `bush.leaf.${side < 0 ? 'l' : 'r'}.${i}`;
+      blob.scale.set(HALF_W * 0.42, HALF_H * blobs[i][3], 0.14);
+      blob.position.set(blobs[i][0], blobs[i][1], FRONT_Z + blobs[i][2]);
+      bunch.add(blob);
+    }
+    // **中央でしっかり重ねる。** 0.03 しか寄せていなかったときは、
+    // 左右の房のあいだに 0.05 ほどの縦の隙間が残り、
+    // そこから白いうさぎの体が縦一直線に見えていた（カーテンと同じ失敗）。
+    // 房の内側の球（局所 x = 0）が x = 0 を 0.08 またぐところまで寄せる
+    bunch.position.x = (side * W) / 4 - side * 0.14;
+    group.add(bunch);
+    bunches.push(bunch);
+  }
+
+  // 手前の株。**開いても動かない。**
+  // 左右の房は球なので、下のほうでは横幅がすぼまって中央に隙間が残り、
+  // うさぎの足元が1点だけ覗けていた（格子で測って 1/63 点）。
+  // ここは動物が出きる高さ（y = 0.39 以上）より下だけを塞ぐので、
+  // 出てきたうさぎを隠すことはない
+  const skirt = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), leaf);
+  skirt.name = 'bush.skirt';
+  skirt.scale.set(HALF_W * 0.52, HALF_H * 0.62, 0.15);
+  skirt.position.set(0, -H * 0.62, FRONT_Z + 0.05);
+  group.add(skirt);
+
+  // 上に伸びる草。ヒント（うさぎの耳）と混ざらないよう、細く短くする
+  for (let i = 0; i < 5; i++) {
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.3 + (i % 3) * 0.07, 6), deep);
+    blade.name = `bush.blade.${i}`;
+    blade.position.set(-HALF_W + 0.22 + i * 0.24, HALF_H - 0.02, FRONT_Z - 0.04);
+    blade.rotation.z = (i - 2) * 0.09;
+    group.add(blade);
+  }
+
+  // 閉じるときに深く重ねたぶん、開くときは多めに逃がす。
+  // 開ききったときの内側の端は ±0.37 で、いちばん幅のある動物（うさぎ 0.31）が通る。
+  // **0.42 まで開けると、画面端の草むらが横にはみ出して切れる**
+  // （Pixel 7 縦の画面半幅 2.30 に対して 2.40 まで届いていた）
+  const openX = W * 0.34;
+
+  return {
+    group,
+    coverTopY: HALF_H,
+    // いちばん下の房が届くところ。うさぎの足元（-0.855）より下
+    coverBottomY: -H * 0.56 - HALF_H * 0.74,
+    mouthWidth: W - 0.12,
+    animalZ: ANIMAL_Z,
+    hintZ: HINT_Z,
+    setOpen(t) {
+      // 開くときは横に逃がしつつ、少しだけ倒す。真横に平行移動させると
+      // 「草がスライドした」に見えて、かき分けた感じにならない
+      for (let i = 0; i < bunches.length; i++) {
+        const side = i === 0 ? -1 : 1;
+        bunches[i].position.x = (side * W) / 4 - side * 0.14 + side * openX * t;
+        bunches[i].rotation.z = -side * 0.5 * t;
+      }
     },
     setWobble(r) {
       group.rotation.z = r;

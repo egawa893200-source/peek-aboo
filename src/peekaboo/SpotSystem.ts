@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 
-import type { SpotConfig, SpotState } from '../types';
+import type { SceneMode, SpotConfig, SpotState } from '../types';
 import { createSpotShape, type SpotShape } from './SpotShapes';
 
 /* --- タイミング（§4-3。実測で決めた値なので、動かすときは設計書も直すこと） --- */
@@ -44,6 +44,13 @@ export const APPEAR_DUR_SEC = 0.35;
 export const OUT_IDLE_SEC = 1.6;
 /** 引っ込みにかける時間（§4-3 の 2.1s → 2.6s） */
 export const HIDE_DUR_SEC = 0.5;
+/**
+ * モードB（`chase`）で出たまま待つ時間（§4-5 の「モードBの idle は 1.2秒」）。
+ *
+ * モードAより短い。**出ている時間より移動を見せる時間のほうが大事**だから。
+ * §4-5 の表では 0.50s に出きって 1.70s に idle が終わるので、ちょうど 1.2秒。
+ */
+export const CHASE_OUT_IDLE_SEC = 1.2;
 
 /** 登場の山（不変条件4「登場は 0.35秒以内に始まる」の判定に使う） */
 export const PEAK_AT_SEC = APPEAR_DELAY_SEC + APPEAR_DUR_SEC;
@@ -107,6 +114,23 @@ export interface SpotRuntime {
   clock: number;
   /** いま出ている動物。§6-2（Phase 7）で毎回変える */
   animalIndex: number;
+  /**
+   * 中に動物が居るか。
+   *
+   * モードB（§4-5）では4箇所のうち1箇所だけが `true` になる。
+   * **`false` でも当たり判定は外さない**（不変条件3b）。中身が居ないからと
+   * 判定を外すと、モードBでいちばん多い操作が無反応になる。
+   * 押されたときは状態を変えず、`onEmpty` を投げて §4-6 の演出に回す。
+   */
+  occupied: boolean;
+  /**
+   * `reveal` とは別に、外から開ける量 0..1。
+   *
+   * §4-6（空の場所のふたが開く）と、§4-5 の到着〜もぐるで使う。
+   * **`setOpen` を呼ぶのは `SpotSystem` だけ**にしてある。
+   * 2箇所から呼ぶと、片方が毎フレーム上書きして「開かない」が起きる。
+   */
+  extraOpen: number;
 }
 
 export type SpotEvent = (spot: SpotRuntime) => void;
@@ -124,11 +148,20 @@ export class SpotSystem {
 
   private readonly voiceFns: SpotEvent[] = [];
   private readonly peakFns: SpotEvent[] = [];
+  private readonly emptyFns: SpotEvent[] = [];
+  private readonly tapFns: SpotEvent[] = [];
 
   /** 応答を返したタップの総数。**タップ総数と必ず一致すること**（不変条件1） */
   private responses = 0;
 
-  constructor(spots: readonly SpotConfig[]) {
+  /**
+   * @param mode 場面の遊び方（§4-5）。`chase` では `out` のあと
+   *   `hiding` ではなく `moving` に入り、そこから先は `ChaseSystem` が動かす。
+   */
+  constructor(
+    spots: readonly SpotConfig[],
+    readonly mode: SceneMode = 'hideout'
+  ) {
     spots.forEach((config, i) => {
       const shape = createSpotShape(config.kind);
       const group = new THREE.Group();
@@ -152,6 +185,9 @@ export class SpotSystem {
         // 黄金比でずらす。等間隔にすると4つが周期的に揃って見える
         clock: (i * 0.618) % 1 * 10,
         animalIndex: 0,
+        // モードBでは誰が入居しているかを `SceneRoot` が実行時に決める
+        occupied: config.animals.length > 0,
+        extraOpen: 0,
       };
       this.runtimes.push(runtime);
       shape.setOpen(0);
@@ -171,6 +207,22 @@ export class SpotSystem {
   /** 登場の山（§4-4 の粒子ときらめき） */
   onPeak(fn: SpotEvent): void {
     this.peakFns.push(fn);
+  }
+
+  /**
+   * **空の隠れ場所が押された**（不変条件3b / §4-6）。
+   * `EmptySpot` がここに繋がって「ふたが開く → 誰もいない → 正解を揺らす」を走らせる。
+   */
+  onEmpty(fn: SpotEvent): void {
+    this.emptyFns.push(fn);
+  }
+
+  /**
+   * 隠れ場所が押された。中身の有無によらず**毎回**呼ばれる。
+   * `ChaseSystem` が移動中の反応（不変条件4b）に使う。
+   */
+  onTapped(fn: SpotEvent): void {
+    this.tapFns.push(fn);
   }
 
   find(id: string): SpotRuntime | null {
@@ -201,6 +253,18 @@ export class SpotSystem {
     this.responses++;
     // どの状態でも「ぷるっ」は返す。**アピールを止めない**（不変条件2）
     spot.shake = 1;
+    this.emit(this.tapFns, spot);
+
+    // **空の隠れ場所（§4-6 / 不変条件3b）。**
+    // 状態は変えない。中身が居ないのに `appearing` に入れると、
+    // ふたが開いて何も出てこないまま `out` に居座り、次が押せなくなる。
+    // 演出は `EmptySpot` が `onEmpty` を受けて走らせる。
+    // **ここで早期 return しても「無反応」ではない**ことに注意:
+    // 波紋・効果音（App）と「ぷるっ」（上の行）は既に返している。
+    if (!spot.occupied) {
+      this.emit(this.emptyFns, spot);
+      return true;
+    }
 
     switch (spot.state) {
       case 'hidden':
@@ -220,7 +284,7 @@ export class SpotSystem {
         this.emit(this.voiceFns, spot);
         break;
       case 'out':
-        spot.idle = OUT_IDLE_SEC;
+        spot.idle = this.outIdleSec();
         this.emit(this.voiceFns, spot);
         break;
       default:
@@ -249,7 +313,7 @@ export class SpotSystem {
         if (s.reveal >= 1) {
           s.reveal = 1;
           s.state = 'out';
-          s.idle = OUT_IDLE_SEC;
+          s.idle = this.outIdleSec();
           // 山。ここで「ばあ！」と粒子（§4-3 の 0.35s）
           this.emit(this.peakFns, s);
           this.emit(this.voiceFns, s);
@@ -258,7 +322,12 @@ export class SpotSystem {
       }
       case 'out': {
         s.idle -= dt;
-        if (s.idle <= 0) s.state = 'hiding';
+        if (s.idle <= 0) {
+          // モードBは引っ込まずに移動へ（§4-5）。
+          // ここから先は `ChaseSystem` が動かす。**この先で `reveal` を
+          // 触らないこと**（`moving` の間 SpotSystem は何もしない）
+          s.state = this.mode === 'chase' ? 'moving' : 'hiding';
+        }
         break;
       }
       case 'hiding': {
@@ -284,10 +353,17 @@ export class SpotSystem {
     s.shake = Math.max(0, s.shake - dt / SHAKE_DECAY_SEC);
   }
 
+  /** 出たまま待つ秒数。モードBは短い（§4-5） */
+  private outIdleSec(): number {
+    return this.mode === 'chase' ? CHASE_OUT_IDLE_SEC : OUT_IDLE_SEC;
+  }
+
   private apply(s: SpotRuntime, dt: number): void {
     // ふたは動物より先に開ききる。動物がふたを押しのけて出るように見えると
-    // 「引っかかっている」ように読める
-    s.shape.setOpen(Math.min(1, s.reveal * 1.35));
+    // 「引っかかっている」ように読める。
+    // `extraOpen`（§4-6 の空振り、§4-5 の到着）とは**大きいほうを採る**。
+    // 足し算にすると 1 を超えて、ふたが裏返るところまで回る
+    s.shape.setOpen(Math.max(Math.min(1, s.reveal * 1.35), s.extraOpen));
 
     s.clock += dt;
     const t = s.clock;
@@ -404,6 +480,9 @@ export class SpotSystem {
       state: s.state,
       reveal: s.reveal,
       taps: s.taps,
+      occupied: s.occupied,
+      openAmount: Math.max(Math.min(1, s.reveal * 1.35), s.extraOpen),
+      shake: s.shake,
       screenX: this.sx[i],
       screenY: this.sy[i],
       configuredRadiusPx: s.config.hitRadiusPx,
@@ -416,6 +495,8 @@ export class SpotSystem {
     this.runtimes.length = 0;
     this.voiceFns.length = 0;
     this.peakFns.length = 0;
+    this.emptyFns.length = 0;
+    this.tapFns.length = 0;
     this.group.removeFromParent();
   }
 
@@ -430,6 +511,10 @@ export interface SpotSnapshot {
   state: SpotState;
   reveal: number;
   taps: number;
+  occupied: boolean;
+  /** ふたの開き具合 0..1。§4-6 の空振りは `reveal` が 0 のまま、ここだけ動く */
+  openAmount: number;
+  shake: number;
   screenX: number;
   screenY: number;
   configuredRadiusPx: number;

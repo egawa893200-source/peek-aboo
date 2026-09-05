@@ -52,6 +52,28 @@ export class Loop {
     document.addEventListener('visibilitychange', this.onVisibility);
   }
 
+  /**
+   * 更新が進めた時間（秒）。**壁時計ではない。**
+   *
+   * このループは 1/60 の固定刻みで、1フレームに最大3ステップしか進めず、
+   * 溜まりすぎたぶんは捨てる（「時間の借金」を作らない）。
+   * だから **fps が足りない環境では、simulatedSeconds は実時間より遅れる**。
+   *
+   * §4-3 / §4-5 のタイミング表はこの時計の上で決まっているので、
+   * 表どおりかを検査するときは壁時計ではなくこちらを使うこと。
+   * CI にも開発コンテナにも GPU が無く、ソフトウェア描画では
+   * 実時間で測ると 4.80秒の移動が 5.67秒に見えた（実測）。
+   * 実時間で合否を決めると、fps を合否条件にしたのと同じことになる（§10-2）。
+   */
+  get simulatedSeconds(): number {
+    return this.elapsed;
+  }
+
+  /** 更新ステップの通し数。`frameCount`（描画回数）とは別物 */
+  get stepCount(): number {
+    return this.frame;
+  }
+
   onUpdate(fn: UpdateFn): void {
     this.updateFns.push(fn);
   }

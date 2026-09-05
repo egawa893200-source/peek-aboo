@@ -380,3 +380,242 @@ test.describe('描画量と当たり判定の実測（§10-2）', () => {
     expect(await page.evaluate(() => window.__peekaboo.getTextureBytes().bytes)).toBe(0);
   });
 });
+
+/* ==========================================================================
+ * のはら（モードB「おいかけっこ」/ §4-5・§4-6）
+ *
+ * **画面上の切替バーはまだ無い**（Phase 6）ので、`setScene` で入る。
+ * 種を固定して、行き先の抽選を再現できるようにしてある。
+ * ========================================================================== */
+
+const NOHARA_SEED = 20260905;
+
+async function bootNohara(page: Page): Promise<void> {
+  await boot(page);
+  await page.evaluate((seed) => window.__peekaboo.setScene('nohara', seed), NOHARA_SEED);
+  await page.waitForFunction(() => window.__peekaboo.getSceneId() === 'nohara');
+  await page.waitForFunction(() => window.__peekaboo.getChase() !== null);
+}
+
+/** うさぎが居る（or 向かっている）くさむらの画面座標 */
+async function answerCenter(page: Page): Promise<{ id: string; x: number; y: number }> {
+  return page.evaluate(() => {
+    const id = window.__peekaboo.getChase()!.answerSpotId;
+    const s = window.__peekaboo.getSpots().find((x) => x.id === id)!;
+    return { id, x: s.screenX, y: s.screenY };
+  });
+}
+
+test.describe('§4-6 空の隠れ場所（不変条件3b）', () => {
+  test('空の場所を押しても必ず反応が返る', async ({ page }) => {
+    await bootNohara(page);
+    const answer = await answerCenter(page);
+    const spots = await spotCenters(page);
+    const empties = spots.filter((s) => s.id !== answer.id);
+    expect(empties).toHaveLength(3);
+
+    for (const spot of empties) {
+      const before = await page.evaluate(() => window.__peekaboo.getEmpty()!.taps);
+      await page.mouse.click(spot.x, spot.y);
+      const after = await page.evaluate(() => window.__peekaboo.getEmpty()!.taps);
+      // **押した回数ぶん、必ず受けている。** のはらでは4回に3回がここ
+      expect(after, spot.id).toBe(before + 1);
+
+      // ふたが開く（§4-6 の 0.00s → 0.20s で開ききる）。中身は出てこない。
+      // **押した直後に読まないこと。** 開きはじめは 0 なので、
+      // 1フレームも進まないうちに読むと 0 が返る（実際に落ちた）
+      const opened = await page.evaluate(async (id) => {
+        const api = window.__peekaboo;
+        const deadline = performance.now() + 1000;
+        let max = 0;
+        while (performance.now() < deadline) {
+          await new Promise((r) => requestAnimationFrame(r));
+          const s = api.getSpots().find((x) => x.id === id)!;
+          max = Math.max(max, s.openAmount);
+          if (s.reveal > 0) return { max, reveal: s.reveal };
+          if (max >= 1) break;
+        }
+        return { max, reveal: api.getSpots().find((x) => x.id === id)!.reveal };
+      }, spot.id);
+      expect(opened.max, spot.id).toBeGreaterThan(0.9);
+      expect(opened.reveal, spot.id).toBe(0);
+      await page.waitForTimeout(1300); // ひと通り走りきるまで
+    }
+  });
+
+  test('空の場所を押したあと、正解のくさむらが揺れる', async ({ page }) => {
+    await bootNohara(page);
+    const answer = await answerCenter(page);
+    const miss = (await spotCenters(page)).find((s) => s.id !== answer.id)!;
+
+    const shook = await page.evaluate(
+      async ({ mx, my, answerId }) => {
+        const api = window.__peekaboo;
+        api.tap(mx, my);
+        // §4-6 の 0.50s に正解が揺れる。少し余裕をみて見張る
+        const deadline = performance.now() + 1200;
+        let max = 0;
+        while (performance.now() < deadline) {
+          await new Promise((r) => requestAnimationFrame(r));
+          const s = api.getSpots().find((x) => x.id === answerId)!;
+          max = Math.max(max, s.shake);
+        }
+        return max;
+      },
+      { mx: miss.x, my: miss.y, answerId: answer.id }
+    );
+
+    // **必ず正解を教える**（§4-6）。1歳半に探させるのは早い
+    expect(shook).toBeGreaterThan(0.5);
+  });
+});
+
+test.describe('§4-5 移動モード', () => {
+  test('ばあ→移動→隠れ終わりが 6秒以内に完了し、別の場所に着く', async ({ page }) => {
+    await bootNohara(page);
+    const answer = await answerCenter(page);
+
+    const result = await page.evaluate(async (start) => {
+      const api = window.__peekaboo;
+      // **更新時計で測る。** 壁時計だとソフトウェア描画の遅さが混ざり、
+      // fps を合否条件にしたのと同じことになる（§10-2 / `Loop.simulatedSeconds`）
+      const sim0 = api.getSimulatedSeconds();
+      const wall0 = performance.now();
+      api.tap(start.x, start.y);
+      while (performance.now() - wall0 < 12000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        if (api.getChase()!.laps >= 1) break;
+      }
+      const chase = api.getChase()!;
+      return {
+        seconds: api.getSimulatedSeconds() - sim0,
+        wallSeconds: (performance.now() - wall0) / 1000,
+        ...chase,
+      };
+    }, answer);
+
+    expect(result.laps).toBe(1);
+    console.log(
+      `[実測] 1周: 更新時計 ${result.seconds.toFixed(2)}s / 壁時計 ${result.wallSeconds.toFixed(2)}s（表 4.80s）`
+    );
+    // §11-4 の合格ライン。§4-5 の想定は 4.80秒。
+    // **壁時計では判定しない**（GPU が無い環境では必ず遅れる）
+    expect(result.seconds).toBeLessThanOrEqual(6);
+    expect(result.seconds).toBeGreaterThan(4.0);
+    expect(result.answerSpotId).not.toBe(answer.id);
+    expect(result.history).toEqual([answer.id, result.answerSpotId]);
+  });
+
+  test('移動中に連打しても、うさぎは必ず次のくさむらに着く（不変条件4b）', async ({ page }) => {
+    await bootNohara(page);
+    const answer = await answerCenter(page);
+
+    const result = await page.evaluate(async (start) => {
+      const api = window.__peekaboo;
+      api.tap(start.x, start.y);
+
+      // 移動が始まるまで待つ
+      const t0 = performance.now();
+      while (performance.now() - t0 < 4000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        if (api.getChase()!.moving) break;
+      }
+
+      // **移動中ずっと、4箇所すべてを毎フレーム連打する**
+      const spots = api.getSpots();
+      let taps = 0;
+      const t1 = performance.now();
+      while (performance.now() - t1 < 5000) {
+        for (const s of spots) {
+          api.tap(s.screenX, s.screenY);
+          taps++;
+        }
+        await new Promise((r) => requestAnimationFrame(r));
+        if (api.getChase()!.laps >= 1) break;
+      }
+      return { taps, ...api.getChase()!, tapCount: api.getTapCount() };
+    }, answer);
+
+    expect(result.taps).toBeGreaterThan(100);
+    expect(result.tapsWhileMoving).toBeGreaterThan(0);
+    // **移動そのものは止まっていない**
+    expect(result.laps).toBe(1);
+    expect(result.answerSpotId).not.toBe(answer.id);
+  });
+
+  test('20周まわして、同じ場所への即戻りが 0 回', async ({ page }) => {
+    test.setTimeout(180_000);
+    await bootNohara(page);
+
+    const history = await page.evaluate(async () => {
+      const api = window.__peekaboo;
+      for (let lap = 0; lap < 20; lap++) {
+        const id = api.getChase()!.answerSpotId;
+        const s = api.getSpots().find((x) => x.id === id)!;
+        api.tap(s.screenX, s.screenY);
+        const t0 = performance.now();
+        while (performance.now() - t0 < 9000) {
+          await new Promise((r) => requestAnimationFrame(r));
+          if (api.getChase()!.laps >= lap + 1) break;
+        }
+      }
+      return api.getChase()!.history;
+    });
+
+    expect(history).toHaveLength(21);
+    let immediate = 0;
+    for (let i = 1; i < history.length; i++) if (history[i] === history[i - 1]) immediate++;
+    expect(immediate, `履歴: ${history.join(' → ')}`).toBe(0);
+    // 4箇所すべてを踏んでいる（順番が固定になっていない）
+    expect(new Set(history).size).toBe(4);
+    console.log(`[実測] 20周の行き先: ${history.join(' → ')}`);
+  });
+
+  test('のはらの描画量と、§4-5 の段階の実測', async ({ page }) => {
+    await bootNohara(page);
+    const answer = await answerCenter(page);
+
+    const timeline = await page.evaluate(async (start) => {
+      const api = window.__peekaboo;
+      const first: Record<string, number> = {};
+      const sim0 = api.getSimulatedSeconds();
+      const wall0 = performance.now();
+      api.tap(start.x, start.y);
+      while (performance.now() - wall0 < 12000) {
+        await new Promise((r) => requestAnimationFrame(r));
+        const c = api.getChase()!;
+        const key = c.laps >= 1 ? 'done' : c.phase;
+        // 壁時計ではなく更新時計（§10-2）
+        if (first[key] === undefined) first[key] = api.getSimulatedSeconds() - sim0;
+        if (c.laps >= 1) break;
+      }
+      first.wall = (performance.now() - wall0) / 1000;
+      return first;
+    }, answer);
+
+    const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());
+    console.log(
+      [
+        '[実測] のはら（モードB）。時刻はすべて更新時計（§10-2）',
+        `  三角形: ${info.triangles}  draw call: ${info.calls}  geometry: ${info.geometries}`,
+        `  予告のはじまり  ${timeline.aim?.toFixed(2)}s（表 1.70s）`,
+        `  ジャンプ開始    ${timeline.hop?.toFixed(2)}s（表 2.10s）`,
+        `  到着            ${timeline.look?.toFixed(2)}s（表 3.60s）`,
+        `  もぐりはじめ    ${timeline.burrow?.toFixed(2)}s（表 3.90s）`,
+        `  隠れ終わり      ${timeline.done?.toFixed(2)}s（表 4.80s）`,
+        `  （参考・合否には数えない）壁時計での1周 ${timeline.wall?.toFixed(2)}s`,
+      ].join('\n')
+    );
+
+    // **fps は合否にしない。** GPU に依存しない量だけを見る（§10-2）
+    expect(info.triangles).toBeGreaterThan(0);
+    expect(info.triangles).toBeLessThan(20_000);
+    expect(info.calls).toBeLessThan(120);
+    // 更新時計なので、表の 4.80秒にほぼ一致する。
+    // rAF が飛んだフレームぶんの取りこぼしだけ幅を持たせる
+    expect(timeline.aim).toBeGreaterThan(1.5);
+    expect(timeline.aim).toBeLessThan(2.0);
+    expect(timeline.done).toBeGreaterThan(4.5);
+    expect(timeline.done).toBeLessThanOrEqual(5.2);
+  });
+});

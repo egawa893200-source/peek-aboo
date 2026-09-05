@@ -22,16 +22,31 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { SCENES } from '../../src/data/scenes';
+import { findScene, SCENES } from '../../src/data/scenes';
 import {
   AnimalSystem,
   EXPECTED_HINT_EXPOSURE,
   FLASH_MIN_INTERVAL_SEC,
+  HIDDEN_SINK,
 } from '../../src/peekaboo/AnimalSystem';
+import {
+  AIM_SEC,
+  BURROW_SEC,
+  CHASE_MOVE_SEC,
+  ChaseSystem,
+  HOP_SEC,
+  LOOK_SEC,
+} from '../../src/peekaboo/ChaseSystem';
+import {
+  EMPTY_HINT_AT_SEC,
+  EMPTY_TOTAL_SEC,
+  EmptySpot,
+} from '../../src/peekaboo/EmptySpot';
 import {
   APPEAR_DELAY_SEC,
   HIDE_DUR_SEC,
   OUT_IDLE_SEC,
+  CHASE_OUT_IDLE_SEC,
   PEAK_AT_SEC,
   SpotSystem,
   type SpotHitTester,
@@ -97,6 +112,57 @@ function fakeTester(scale = 100): SpotHitTester {
   };
 }
 
+const NOHARA = findScene('nohara');
+
+interface ChaseRig extends Rig {
+  chase: ChaseSystem;
+  empty: EmptySpot;
+  /** うさぎが居る（or 向かっている）隠れ場所 */
+  answer(): SpotRuntime;
+}
+
+/**
+ * のはら（モードB / §4-5）の一式。
+ *
+ * **乱数の種を渡せるようにしてある。** `Math.random()` のままだと
+ * 行き先の抽選が再現できず、落ちたときに何が起きたか追えない
+ * （CLAUDE.md「遊びの乱数は独立したシードから引く」）。
+ */
+function chaseRig(seed = 12345): ChaseRig {
+  const spots = new SpotSystem(NOHARA.spots, NOHARA.mode);
+  const animals = new AnimalSystem(spots, false);
+  const start = spots.runtimes[0];
+  animals.spawn(start, NOHARA.runner!);
+  const chase = new ChaseSystem(spots, animals, { seed, startSpotId: start.config.id });
+  const empty = new EmptySpot(spots);
+  spots.onEmpty((spot) => empty.trigger(spot, chase.getAnswerSpot()));
+
+  const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
+  camera.position.set(0, 0.3, 7.2);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld(true);
+
+  return {
+    spots,
+    animals,
+    camera,
+    chase,
+    empty,
+    answer: () => chase.getAnswerSpot(),
+    advance(seconds, onFrame) {
+      const frames = Math.round(seconds / DT);
+      for (let i = 0; i < frames; i++) {
+        onFrame?.(i);
+        // **SceneRoot と同じ順番。** ここを変えると移動の開始が1フレームずれる
+        spots.update(DT);
+        chase.update(DT);
+        empty.update(DT);
+        animals.update(DT, spots, camera);
+      }
+    },
+  };
+}
+
 /** `obj` が `root` の中にいるか（自分自身を含む） */
 function isDescendantOf(obj: THREE.Object3D, root: THREE.Object3D): boolean {
   for (let o: THREE.Object3D | null = obj; o; o = o.parent) {
@@ -108,9 +174,89 @@ function isDescendantOf(obj: THREE.Object3D, root: THREE.Object3D): boolean {
 describe('不変条件1 — 無反応を作らない', () => {
   // 波紋は DOM が要るので Playwright 側で見る（tests/e2e「画面のどこをタップしても波紋が出る」）。
   it.todo('隠れ場所から外れた場所を押しても、波紋が必ず出る');
-  // §4-6。モードB（Phase 3）が入ってから
-  it.todo('空の隠れ場所を押しても反応が返る（不変条件3b）');
-  it.todo('空の隠れ場所を押したあと、正解の隠れ場所が揺れる');
+  it('空の隠れ場所を押しても反応が返る（不変条件3b）', () => {
+    const { spots, chase, empty, advance } = chaseRig();
+    // うさぎが居ない3箇所。**のはらでは4回に3回がここ**（§4-6）
+    const emptySpots = spots.runtimes.filter((s) => s !== chase.getAnswerSpot());
+    expect(emptySpots).toHaveLength(3);
+
+    for (const spot of emptySpots) {
+      expect(spot.occupied, spot.config.id).toBe(false);
+      // 空でも当たり判定は持っている（外すと不変条件3b を破る）
+      expect(spot.config.hitRadiusPx).toBeGreaterThan(0);
+      // **必ず true。** ここが false になると、のはらでいちばん多い操作が無反応になる
+      expect(spots.tap(spot), spot.config.id).toBe(true);
+      // 押した実感（§4-3 の 0.00s）
+      expect(spot.shake, spot.config.id).toBeGreaterThan(0);
+    }
+    expect(empty.getStartedCount()).toBe(3);
+    expect(empty.getTapCount()).toBe(3);
+    // 応答を返したタップ数が、押した数と一致する
+    expect(spots.getResponseCount()).toBe(3);
+
+    // ふたが開く（§4-6 の 0.00s）
+    advance(0.2);
+    for (const spot of emptySpots) {
+      expect(spot.extraOpen, spot.config.id).toBeGreaterThan(0.9);
+      // **状態は変えない。** 中身が居ないのに appearing に入れると、
+      // ふたが開いて何も出てこないまま out に居座る
+      expect(spot.state, spot.config.id).toBe('hidden');
+      expect(spot.reveal, spot.config.id).toBe(0);
+    }
+  });
+
+  it('空の隠れ場所を押したあと、正解の隠れ場所が揺れる', () => {
+    const { spots, chase, advance } = chaseRig();
+    const answer = chase.getAnswerSpot();
+    const miss = spots.runtimes.find((s) => s !== answer)!;
+
+    spots.tap(miss);
+    // 揺れる前に、押した側の「ぷるっ」を減衰させきる
+    advance(EMPTY_HINT_AT_SEC - 0.05);
+    const before = answer.shake;
+
+    advance(0.1);
+    // **必ず正解を教える**（§4-6「1歳半に探させるのは早い」）
+    expect(answer.shake).toBeGreaterThan(before);
+    expect(answer.shake).toBeGreaterThan(0.5);
+    // 明滅ではなく揺れ（不変条件6）。開いてはいない
+    expect(answer.extraOpen).toBe(0);
+    expect(answer.reveal).toBe(0);
+  });
+
+  it('空の隠れ場所を連打しても、シーケンスは毎回最後まで走る', () => {
+    // みずのなかの貝と同じ形の不具合を §4-6 で作らないこと。
+    // 途中のタップで巻き戻すと、「ふたが開きかけては戻る」を繰り返して
+    // 誰もいないことも正解の場所も、一度も見せられない
+    const { spots, chase, empty, advance } = chaseRig();
+    const miss = spots.runtimes.find((s) => s !== chase.getAnswerSpot())!;
+
+    // 1本ぶんの中で押し続ける
+    let maxOpen = 0;
+    advance(EMPTY_TOTAL_SEC - 0.05, () => {
+      expect(spots.tap(miss)).toBe(true);
+      maxOpen = Math.max(maxOpen, miss.extraOpen);
+    });
+
+    // ふたは開ききった（貝は 0.037 までしか開かなかった）
+    expect(maxOpen).toBe(1);
+    // 連打しても走ったシーケンスは1本だけ。巻き戻していない
+    expect(empty.getStartedCount()).toBe(1);
+    // それでも押した回数ぶん、反応は返している（不変条件2）
+    expect(empty.getTapCount()).toBeGreaterThan(50);
+
+    // 押すのをやめれば、最後まで走りきる
+    advance(0.3);
+    expect(empty.getFinishedCount()).toBe(1);
+    expect(miss.extraOpen).toBe(0);
+
+    // 長く連打しても、**始めたぶんは必ず終わる**（走りっぱなしにしない）
+    advance(EMPTY_TOTAL_SEC * 4, () => {
+      spots.tap(miss);
+    });
+    advance(EMPTY_TOTAL_SEC);
+    expect(empty.getFinishedCount()).toBe(empty.getStartedCount());
+  });
 
   it('外したタップでも、いちばん近い隠れ場所が必ず揺れる', () => {
     const { spots } = rig();
@@ -237,8 +383,39 @@ describe('不変条件2 — どの瞬間に押しても反応する', () => {
     expect(spot.reveal).toBe(1);
   });
 
-  // §4-5 の移動モードは Phase 3
-  it.todo('移動中に押しても反応が返り、かつ移動が完了する（不変条件4b）');
+  it('移動中に押しても反応が返り、かつ移動が完了する（不変条件4b）', () => {
+    const { spots, chase, advance } = chaseRig();
+    const start = chase.getAnswerSpot();
+
+    spots.tap(start);
+    // 移動が始まるまで（§4-5 の 1.70s）
+    advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + 0.05);
+    expect(chase.isMoving()).toBe(true);
+
+    // **移動中ずっと 60Hz で連打する。** それでも到着すること
+    let responses = 0;
+    let sawHop = false;
+    advance(CHASE_MOVE_SEC + 0.3, () => {
+      if (chase.getPhase() === 'hop') sawHop = true;
+      for (const spot of spots.runtimes) {
+        // どこを押しても必ず反応が返る（不変条件1・3b）
+        expect(spots.tap(spot)).toBe(true);
+        responses++;
+      }
+    });
+
+    expect(sawHop).toBe(true);
+    expect(responses).toBeGreaterThan(0);
+    expect(chase.getTapsWhileMoving()).toBeGreaterThan(0);
+
+    // **移動そのものは止まっていない。** 1周して別の場所に着いた
+    expect(chase.getLaps()).toBeGreaterThanOrEqual(1);
+    expect(chase.getPhase()).toBe('idle');
+    const arrived = chase.getAnswerSpot();
+    expect(arrived).not.toBe(start);
+    expect(arrived.occupied).toBe(true);
+    expect(start.occupied).toBe(false);
+  });
 });
 
 describe('不変条件3 — 隠れていても必ず見えている', () => {
@@ -318,15 +495,120 @@ describe('不変条件3 — 隠れていても必ず見えている', () => {
     }
   });
 
+  it('隠れているとき、体はどこからも覗けない（隙間から見えない）', () => {
+    // ==========================================================================
+    // 「ヒントが見えている」の裏返し。**見えてはいけないものが見えていないか。**
+    //
+    // 隙間から中身が見える壊れ方を2回作った:
+    //   - カーテンの中央に 0.10 空けていたら、体が縦一直線に丸見えだった
+    //   - くさむらの左右の房が 0.05 離れていて、白いうさぎが縦に見えていた
+    // どちらも「縁より上のはみ出し量」は正しく、**数値のテストは通っていた**。
+    //
+    // **顔の1点だけ狙っても足りない。** カメラは斜めから見ているので、
+    // 顔へのレイはたまたま葉に当たって通ってしまう（実際に見逃した）。
+    // 体の見かけの矩形に格子を張って、**どの向きから見ても、
+    // いちばん手前に当たるのが体であってはいけない**ことを見る。
+    // 画素は比べない（GPU も画面も要らず、結果は毎回同じ）。
+    // ==========================================================================
+    // **格子は細かく取ること。** 7×9 では、カーテンやくさむらの
+    // 0.05 幅の隙間を「たまたま外して」通ってしまった。
+    // カメラは斜めから見ているので、体の座標と隠れ場所の座標はずれる。
+    // 隙間の幅（0.05）より細かい間隔になるところまで上げてある
+    const COLS = 15;
+    const ROWS = 15;
+
+    for (const rigging of [rig(), chaseRig()]) {
+      const { spots, animals, camera, advance } = rigging;
+      advance(0.5);
+
+      const ray = new THREE.Raycaster();
+      const target = new THREE.Vector3();
+      const dir = new THREE.Vector3();
+      const box = new THREE.Box3();
+
+      for (const spot of spots.runtimes) {
+        const slot = animals.getSlot(spot.config.id);
+        if (!slot) continue; // のはらの空の3箇所（不変条件3 の例外）
+        spots.group.updateWorldMatrix(true, true);
+
+        // ヒントは見えていて当たり前なので、体だけの矩形を取る
+        box.makeEmpty();
+        for (const child of slot.built.group.children) {
+          if (child === slot.built.hint) continue;
+          box.expandByObject(child);
+        }
+
+        const leaks: string[] = [];
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            target.set(
+              box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / COLS,
+              box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / ROWS,
+              box.max.z
+            );
+            dir.subVectors(target, camera.position).normalize();
+            ray.set(camera.position, dir);
+            ray.far = Infinity;
+
+            const hits = ray.intersectObject(spots.group, true);
+            if (hits.length === 0) continue; // 体にも隠れ場所にも当たらない向き
+            const first = hits[0].object;
+            if (
+              isDescendantOf(first, slot.built.group) &&
+              !isDescendantOf(first, slot.built.hint)
+            ) {
+              leaks.push(`(${c},${r}) ${first.name || first.type}`);
+            }
+          }
+        }
+
+        expect(
+          leaks,
+          `${spot.config.id}: 隠れているのに体が ${leaks.length}/${COLS * ROWS} 点で見えている`
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it('隠れているとき、隠れ場所の下から体がはみ出していない', () => {
+    // **上だけ見ていても気づけない。** うさぎ（体高 1.38）をくさむら（当時 1.05）に
+    // 入れたとき、縁より上の量は 0.22 で正しかったのに、
+    // 下から白い体が飛び出していた。実機の絵を見るまで分からなかった。
+    for (const rigging of [rig(), chaseRig()]) {
+      rigging.advance(0.5);
+      for (const spot of rigging.spots.runtimes) {
+        const e = rigging.animals.getExposure(spot);
+        if (!e) continue; // のはらの空の3箇所（不変条件3 の例外）
+        expect(e.bottomFraction, `${spot.config.id} が下にはみ出している`).toBeLessThan(0.01);
+      }
+    }
+  });
+
   it('ヒントの出す量は、体の高さを実測して決めている', () => {
     // 定数を信じない。耳や尻尾を足すと体の高さは変わるので、
-    // 決め打ちにすると隠れ方が動物ごとにずれる
-    const { spots, animals } = rig();
-    for (const spot of spots.runtimes) {
-      const e = animals.getExposure(spot)!;
-      expect(e.animalHeight).toBeGreaterThan(0);
-      expect(e.fraction).toBeCloseTo(EXPECTED_HINT_EXPOSURE, 1);
+    // 決め打ちにすると隠れ方が動物ごとにずれる。
+    //
+    // 縁から出る量 ＝ ヒントの長さ（体高の HINT_EXPOSURE 倍）
+    //                − 沈めた量（HIDDEN_SINK は体高によらず一定）
+    // なので、**体高で割ったときの値は動物ごとに違う**のが正しい。
+    // ここが全部同じ値になっていたら、高さを実測せず決め打ちにしている
+    const seen = new Set<number>();
+    for (const rigging of [rig(), chaseRig()]) {
+      for (const spot of rigging.spots.runtimes) {
+        const e = rigging.animals.getExposure(spot);
+        if (!e) continue;
+        expect(e.animalHeight).toBeGreaterThan(0);
+
+        const base = EXPECTED_HINT_EXPOSURE - HIDDEN_SINK / e.animalHeight;
+        // 先端（鼻先・足）が少しはみ出すので、下回ることはない
+        expect(e.fraction, spot.config.id).toBeGreaterThanOrEqual(base - 1e-6);
+        // はみ出しても 12% まで。これを超えるならヒントの形が大きすぎる
+        expect(e.fraction, spot.config.id).toBeLessThanOrEqual(base * 1.12);
+        seen.add(Math.round(e.fraction * 1000));
+      }
     }
+    // 体高の違う動物が、違う割合で出ている（決め打ちなら1種類になる）
+    expect(seen.size).toBeGreaterThan(1);
   });
 
   it('隠れ場所の開口部が、動物の断面の 0.86 倍以上を覆う（§4-2）', () => {
@@ -491,7 +773,205 @@ describe('§3-2 当たり判定どうしが重ならない', () => {
 });
 
 describe('§4-5 移動モード', () => {
-  // Phase 3（ChaseSystem）が入ってから
-  it.todo('直前と同じ隠れ場所には戻らない（20周まわして 0 回）');
-  it.todo('ばあ→移動→隠れ終わりが 6秒以内に完了する');
+  /** うさぎを n 周まわして、行き先の履歴を返す */
+  function runLaps(rigging: ReturnType<typeof chaseRig>, laps: number): readonly string[] {
+    const { spots, chase, advance } = rigging;
+    for (let i = 0; i < laps; i++) {
+      spots.tap(chase.getAnswerSpot());
+      // 1周ぶん（§4-5 の 4.80秒）＋ 取りこぼさないための余白
+      advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + CHASE_MOVE_SEC + 0.2);
+    }
+    expect(chase.getLaps()).toBe(laps);
+    return chase.getHistory();
+  }
+
+  it('直前と同じ隠れ場所には戻らない（20周まわして 0 回）', () => {
+    const history = runLaps(chaseRig(), 20);
+    expect(history).toHaveLength(21); // 最初の居場所 ＋ 20周ぶんの行き先
+
+    let immediateReturns = 0;
+    for (let i = 1; i < history.length; i++) {
+      if (history[i] === history[i - 1]) immediateReturns++;
+    }
+    // **0 回。** 同じ場所に戻ると「動いていない」に見える（§4-5）
+    expect(immediateReturns, `履歴: ${history.join(' → ')}`).toBe(0);
+
+    // 3回連続で同じ場所（A→B→A の往復）も避ける（§4-5）
+    let pingPong = 0;
+    for (let i = 2; i < history.length; i++) {
+      if (history[i] === history[i - 2]) pingPong++;
+    }
+    expect(pingPong, `履歴: ${history.join(' → ')}`).toBe(0);
+
+    // 順番を固定にしない（§4-5）。20周まわせば4箇所すべてを踏む
+    expect(new Set(history).size).toBe(4);
+  });
+
+  it('種を変えても、即戻りは 0 回のまま', () => {
+    // 1つの種でたまたま通っただけ、を防ぐ。
+    // 即戻りが起きないのは抽選の運ではなく、候補から外してあるから
+    for (const seed of [1, 7, 99, 4242, 987654]) {
+      const history = runLaps(chaseRig(seed), 20);
+      for (let i = 1; i < history.length; i++) {
+        expect(history[i], `seed=${seed} 履歴: ${history.join(' → ')}`).not.toBe(history[i - 1]);
+      }
+    }
+  });
+
+  it('ばあ→移動→隠れ終わりが 6秒以内に完了する', () => {
+    const { spots, chase, advance } = chaseRig();
+    const start = chase.getAnswerSpot();
+
+    spots.tap(start);
+    let elapsed = 0;
+    let done = Infinity;
+    advance(8, () => {
+      if (done === Infinity && chase.getLaps() === 1) done = elapsed;
+      elapsed += DT;
+    });
+
+    // §4-5 の想定は 4.80秒。§11-4 の合格ラインは 6秒以内
+    expect(done).toBeLessThanOrEqual(6);
+    // 表どおりに 4.80秒であること（1フレームぶんの丸めを許す）
+    const expected = PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + CHASE_MOVE_SEC;
+    expect(expected).toBeCloseTo(4.8, 5);
+    expect(done).toBeGreaterThanOrEqual(expected - DT * 2);
+    expect(done).toBeLessThanOrEqual(expected + DT * 2);
+  });
+
+  it('§4-5 のタイミング表どおりに段階が進む', () => {
+    // 表の各行を、実測した時刻で押さえる。
+    // ここが落ちたら、設計書の表か実装のどちらかがずれている
+    const { spots, chase, advance } = chaseRig();
+    spots.tap(chase.getAnswerSpot());
+
+    const firstAt = new Map<string, number>();
+    let elapsed = 0;
+    advance(6, () => {
+      const phase = chase.getPhase();
+      if (!firstAt.has(phase)) firstAt.set(phase, elapsed);
+      elapsed += DT;
+    });
+
+    const tapToMove = PEAK_AT_SEC + CHASE_OUT_IDLE_SEC; // 1.70s
+    const near = (actual: number | undefined, want: number, label: string) => {
+      expect(actual, label).toBeDefined();
+      expect(Math.abs(actual! - want), `${label} 実測 ${actual?.toFixed(3)}s / 表 ${want}s`).toBeLessThanOrEqual(2 * DT);
+    };
+
+    near(firstAt.get('aim'), tapToMove, '予告のはじまり（表 1.70s）');
+    near(firstAt.get('hop'), tapToMove + AIM_SEC, 'ジャンプのはじまり（表 2.10s）');
+    near(firstAt.get('look'), tapToMove + AIM_SEC + HOP_SEC, '到着（表 3.60s）');
+    near(
+      firstAt.get('burrow'),
+      tapToMove + AIM_SEC + HOP_SEC + LOOK_SEC,
+      'もぐりはじめ（表 3.90s）'
+    );
+    // 表の内訳がそのまま 4.80秒になっていること
+    expect(AIM_SEC + HOP_SEC + LOOK_SEC + BURROW_SEC).toBeCloseTo(CHASE_MOVE_SEC, 5);
+    expect(tapToMove + CHASE_MOVE_SEC).toBeCloseTo(4.8, 5);
+  });
+
+  it('跳んでいるあいだ、弧を描いて上下する（直線の平行移動にしない）', () => {
+    // §4-5「直線の平行移動は『滑って移動した』に見えて、
+    // 1歳半の目には追いづらい。上下動があると視線が乗る」
+    const { spots, chase, animals, advance } = chaseRig();
+    spots.tap(chase.getAnswerSpot());
+
+    const slot = animals.getOnlySlot()!;
+    const world = new THREE.Vector3();
+    const heights: number[] = [];
+    advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + AIM_SEC + HOP_SEC + 0.05, () => {
+      if (chase.getPhase() === 'hop') {
+        slot.built.group.getWorldPosition(world);
+        heights.push(world.y);
+      }
+    });
+
+    expect(heights.length).toBeGreaterThan(60);
+
+    // 山の数を数える。§4-5 の「3〜4回の弧」
+    let peaks = 0;
+    for (let i = 1; i < heights.length - 1; i++) {
+      if (heights[i] > heights[i - 1] && heights[i] >= heights[i + 1]) peaks++;
+    }
+    expect(peaks).toBeGreaterThanOrEqual(3);
+    expect(peaks).toBeLessThanOrEqual(4);
+
+    // 弧の高さが出ていること（直線なら 0 に近くなる）
+    const lo = Math.min(...heights);
+    const hi = Math.max(...heights);
+    expect(hi - lo).toBeGreaterThan(0.5);
+  });
+
+  it('移動中の水平方向は等速（加減速をつけない）', () => {
+    // §4-5「移動中の速度は一定にする。加減速をつけると追いづらい」
+    const { spots, chase, animals, advance } = chaseRig();
+    spots.tap(chase.getAnswerSpot());
+
+    const slot = animals.getOnlySlot()!;
+    const world = new THREE.Vector3();
+    const xs: number[] = [];
+    advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + AIM_SEC + HOP_SEC + 0.05, () => {
+      if (chase.getPhase() === 'hop') {
+        slot.built.group.getWorldPosition(world);
+        xs.push(world.x);
+      }
+    });
+
+    const steps: number[] = [];
+    for (let i = 1; i < xs.length; i++) steps.push(Math.abs(xs[i] - xs[i - 1]));
+    const lo = Math.min(...steps);
+    const hi = Math.max(...steps);
+    // 完全な等速。丸め誤差ぶんしか散らばらない
+    expect(hi - lo).toBeLessThan(1e-6);
+  });
+
+  it('うさぎは常に1箇所にだけ居る', () => {
+    // ここが崩れると「空の場所が3つ」という前提（§4-6）ごと壊れる
+    const rigging = chaseRig();
+    const { spots, chase, advance } = rigging;
+    for (let lap = 0; lap < 6; lap++) {
+      spots.tap(chase.getAnswerSpot());
+      advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + CHASE_MOVE_SEC + 0.2, () => {
+        const occupied = spots.runtimes.filter((s) => s.occupied);
+        expect(occupied.length).toBeLessThanOrEqual(1);
+      });
+      expect(spots.runtimes.filter((s) => s.occupied)).toHaveLength(1);
+    }
+  });
+
+  it('移動が終わると、うさぎは移動先に隠れてヒントが見えている', () => {
+    // 不変条件3。**モードBの例外は「空になった場所」だけ**で、
+    // うさぎが入っている場所は、体の一部が見えていること
+    const { spots, chase, animals, advance } = chaseRig();
+    spots.tap(chase.getAnswerSpot());
+    advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + CHASE_MOVE_SEC + 0.3);
+
+    const home = chase.getAnswerSpot();
+    expect(chase.getPhase()).toBe('idle');
+    expect(home.state).toBe('hidden');
+
+    const e = animals.getExposure(home);
+    expect(e).not.toBeNull();
+    expect(e!.fraction).toBeGreaterThanOrEqual(0.15);
+    expect(e!.fraction).toBeLessThanOrEqual(0.25);
+    expect(e!.bodyFraction).toBeLessThan(0.01);
+    // ヒントが出ている＝跳んでいる最中の「driven」が解けている
+    expect(animals.getSlot(home.config.id)!.driven).toBe(false);
+    expect(animals.getSlot(home.config.id)!.built.hint.visible).toBe(true);
+  });
+
+  it('移動先を押せば、そこから出てくる（次の周が回る）', () => {
+    const { spots, chase, advance } = chaseRig();
+    spots.tap(chase.getAnswerSpot());
+    advance(PEAK_AT_SEC + CHASE_OUT_IDLE_SEC + CHASE_MOVE_SEC + 0.3);
+
+    const home = chase.getAnswerSpot();
+    expect(spots.tap(home)).toBe(true);
+    advance(PEAK_AT_SEC + DT);
+    // 移動先でも、ふつうに「ばあ！」ができる
+    expect(home.reveal).toBe(1);
+    expect(home.state).toBe('out');
+  });
 });

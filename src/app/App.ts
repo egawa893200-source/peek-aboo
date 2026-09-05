@@ -10,9 +10,9 @@
  *   - タップ → 波紋 ＋ 効果音 ＋ 隠れ場所の当たり判定（§4-1）
  *
  * まだ無いもの（設計書 §12 を見ること）:
- *   - ChaseSystem / EmptySpot（§4-5 / §4-6。Phase 3）
  *   - RevealEffect の粒子（Phase 2）
- *   - 場面切替バーと残り3場面（Phase 6）
+ *   - **画面上の場面切替バー**と、そと／うみ（Phase 6）。
+ *     いまは `__peekaboo.setScene('nohara')` でしか のはら に行けない
  *
  * **タップの順番を変えないこと。** 波紋と効果音を先に出す。
  * 当たり判定がどう転んでも「押したのに何も起きない」にはならない（不変条件1）。
@@ -29,7 +29,7 @@ import { QualityManager } from '../core/QualityManager';
 import { Renderer } from '../core/Renderer';
 import { ScreenProjector } from '../core/ScreenProjector';
 import { WakeLock } from '../core/WakeLock';
-import { DEFAULT_SCENE_ID, findScene } from '../data/scenes';
+import { DEFAULT_SCENE_ID, findScene, SCENES } from '../data/scenes';
 import type { SpotRuntime, SpotSnapshot } from '../peekaboo/SpotSystem';
 import { SceneRoot } from '../scene/SceneRoot';
 import { ParentalGate } from '../ui/ParentalGate';
@@ -59,6 +59,8 @@ export class App {
 
   private sceneRoot: SceneRoot | null = null;
   private sceneId = DEFAULT_SCENE_ID;
+  /** モードB の乱数の種。E2E から固定して、行き先の抽選を再現する */
+  private chaseSeed: number | undefined;
   /** 場面の作り直しが走っている間は次の作り直しを受けない（二重生成でリークする） */
   private building = false;
 
@@ -108,12 +110,15 @@ export class App {
   }
 
   /** 場面を差し替える。前の場面は必ず捨てる（不変条件8） */
-  async loadScene(id: string): Promise<void> {
+  async loadScene(id: string, seed?: number): Promise<void> {
     if (this.building) return;
     this.building = true;
     try {
+      if (seed !== undefined) this.chaseSeed = seed;
       const config = findScene(id);
-      const next = await SceneRoot.build(config, this.assets);
+      const next = await SceneRoot.build(config, this.assets, {
+        ...(this.chaseSeed !== undefined ? { chaseSeed: this.chaseSeed } : {}),
+      });
 
       // **古いほうを捨ててから足す。** 順番を逆にすると、
       // 一瞬だけ2場面ぶんのリソースが載って、切替のたびに山が出る
@@ -129,6 +134,11 @@ export class App {
       // 連打で呼ばれたときは押した瞬間に鳴る（不変条件2「声とアピールは必ず返す」）。
       next.spots.onVoice(() => this.audio.speak('ばあ！', 'baa'));
       next.spots.onPeak((spot) => this.onPeak(next, spot));
+
+      // §4-6。**落胆の音にしない。** とぼけた「あれ？」。
+      // ブザー・×印・暗転は使わない（外れを「失敗」にしない）
+      next.empty.onVoice(() => this.audio.speak('あれ？', 'baa'));
+      next.empty.onPuff(() => this.audio.playOneShot('bubble'));
     } finally {
       this.building = false;
     }
@@ -176,6 +186,12 @@ export class App {
     return {
       getTapCount: (): number => this.taps,
       getFrameCount: (): number => this.loop.frameCount,
+      /**
+       * 更新が進めた時間（秒）。**壁時計ではない**（`Loop.simulatedSeconds`）。
+       * §4-3 / §4-5 のタイミング表を検査するときは必ずこちらを使う。
+       * 実時間で測ると、ソフトウェア描画の遅さが合否に混ざる（§10-2）。
+       */
+      getSimulatedSeconds: (): number => this.loop.simulatedSeconds,
       getQualityLevel: (): number => this.quality.currentLevel,
       /** タップを注入する（実際の pointerdown と同じ経路を通る） */
       tap: (x: number, y: number): void => this.input.simulateTap(x, y),
@@ -193,6 +209,13 @@ export class App {
       /** 場面の構築が終わったか。**E2E はここを待つこと**（`loop.start()` では足りない） */
       isReady: (): boolean => this.sceneRoot !== null,
       getSceneId: (): string => this.sceneId,
+      getSceneIds: (): string[] => SCENES.map((s) => s.id),
+      /**
+       * 場面を切り替える。**画面上の切替バーは Phase 6。**
+       * いまは のはら（§4-5 モードB）をここからしか開けない。
+       * `seed` を渡すと行き先の抽選が再現できる（E2E 用）。
+       */
+      setScene: (id: string, seed?: number): Promise<void> => this.loadScene(id, seed),
       /**
        * 隠れ場所の状態と、画面上の位置・**実際に使っている当たり半径**。
        * 当たり判定どうしの距離はここから測る（§3-2）。
@@ -231,6 +254,32 @@ export class App {
       },
       /** 場面を作り直す。往復させて `getMemory()` が増えないことを見る（不変条件8） */
       reloadScene: (): Promise<void> => this.loadScene(this.sceneId),
+
+      /* --- §4-5 移動モード / §4-6 空の隠れ場所（Phase 3） ------------------ */
+
+      /** 移動モードの様子。モードAの場面では null */
+      getChase: () => {
+        const chase = this.sceneRoot?.chase;
+        if (!chase) return null;
+        return {
+          phase: chase.getPhase(),
+          moving: chase.isMoving(),
+          answerSpotId: chase.getAnswerSpot().config.id,
+          history: [...chase.getHistory()],
+          laps: chase.getLaps(),
+          tapsWhileMoving: chase.getTapsWhileMoving(),
+        };
+      },
+      /** §4-6 の空振り。押した回数と、走りきったシーケンスの数 */
+      getEmpty: () => {
+        const empty = this.sceneRoot?.empty;
+        if (!empty) return null;
+        return {
+          taps: empty.getTapCount(),
+          started: empty.getStartedCount(),
+          finished: empty.getFinishedCount(),
+        };
+      },
     };
   }
 

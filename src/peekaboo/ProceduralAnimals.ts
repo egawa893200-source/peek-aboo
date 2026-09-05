@@ -13,6 +13,7 @@
  *   いぬ   … 垂れ耳・突き出た鼻・太い尾
  *   ねずみ … 体に対して大きすぎる丸い耳・とがった鼻
  *   ことり … 耳が無い・くちばし・まん丸
+ *   うさぎ … 立った長い耳・丸い尻尾（のはら / §4-5）
  *
  * を付けて、**遠目のシルエットだけで違う**ようにしてある。
  *
@@ -38,11 +39,15 @@ import { disposeObject3D } from './SpotShapes';
  *
  * 帯の下限寄り（0.20）だと、いちばん小さいことり（体高 0.62）のヒントが
  * 画面上 14px ほどにしかならず、暗い背景では見つけにくかった。
- * 0.22 に上げてある。**上げすぎないこと。** ヒントの形（耳・鼻先）は
- * 先端が少しはみ出すので、実測値は 0.22 → 0.238 まで膨らむ。
- * 0.24 にすると鼻先が 0.259 になり、§4-2 の上限 25% を超える。
+ *
+ * **ここは「生やす長さ」で、画面に出る量ではない。**
+ * `AnimalSystem.HIDDEN_SINK`（0.06）ぶん体ごと沈めるので、
+ * 実際に縁から出るのはそのぶん短くなる。体の高さで割った実測値は
+ * 0.20（ことり）〜 0.23（うさぎ）で、§4-2 の 15〜25% に収まる。
+ * **上げすぎないこと。** ヒントの先端（鼻先・足）は少しはみ出すので、
+ * 0.30 にすると小さい動物で 25% を超える。
  */
-export const HINT_EXPOSURE = 0.22;
+export const HINT_EXPOSURE = 0.27;
 
 export interface ProceduralAnimal {
   readonly group: THREE.Group;
@@ -222,6 +227,20 @@ function addFace(
       head.add(nose);
       break;
     }
+    case 'usagi': {
+      // 小さい鼻と、前歯。丸顔に直線が入ると顔だと分かりやすい
+      const nose = cone(standard('#e79aa8', 0.6), headR * 0.11, headR * 0.15);
+      nose.rotation.x = Math.PI / 2;
+      nose.position.set(0, -headR * 0.14, headR * 0.98);
+      head.add(nose);
+      const teeth = new THREE.Mesh(
+        new THREE.BoxGeometry(headR * 0.22, headR * 0.2, 0.02),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 })
+      );
+      teeth.position.set(0, -headR * 0.38, headR * 0.92);
+      head.add(teeth);
+      break;
+    }
     case 'kotori': {
       // くちばし。耳が無いぶん、ここが唯一の突起になる
       const beak = cone(warm, headR * 0.24, headR * 0.7);
@@ -281,6 +300,24 @@ function addEars(
       }
       break;
     }
+    case 'usagi': {
+      // **立った長い耳。** これがうさぎの全部。
+      // 跳ねているあいだ耳が揺れて見えるように、根元から少し開いて生やす
+      for (const sx of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.5, SEG_W, SEG_H), skin);
+        ear.scale.set(0.34, 1.95, 0.3);
+        ear.position.set(sx * headR * 0.36, headR * 1.55, -headR * 0.04);
+        ear.rotation.z = sx * -0.16;
+        head.add(ear);
+        // 耳の内側。1色だと板に見える
+        const inner = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.5, SEG_W, SEG_H), belly);
+        inner.scale.set(0.2, 1.6, 0.18);
+        inner.position.set(sx * headR * 0.36, headR * 1.55, headR * 0.08);
+        inner.rotation.z = sx * -0.16;
+        head.add(inner);
+      }
+      break;
+    }
     case 'nezumi': {
       // **体に対して大きすぎる丸い耳。** ここを控えめにすると、ねこと混ざる
       for (const sx of [-1, 1]) {
@@ -319,6 +356,13 @@ function addTail(
         wing.position.set(sx * bodyW * 0.46, torsoH * 0.52, 0);
         group.add(wing);
       }
+      break;
+    }
+    case 'usagi': {
+      // 丸い尻尾。跳ねたときに上下するので、後ろに小さく付ける
+      const tail = new THREE.Mesh(new THREE.SphereGeometry(bodyW * 0.16, SEG_W, SEG_H), skin);
+      tail.position.set(0, torsoH * 0.34, -bodyD * 0.6);
+      group.add(tail);
       break;
     }
     case 'inu': {

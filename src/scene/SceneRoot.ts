@@ -15,6 +15,8 @@ import * as THREE from 'three';
 
 import type { AssetLoader } from '../core/AssetLoader';
 import { AnimalSystem } from '../peekaboo/AnimalSystem';
+import { ChaseSystem } from '../peekaboo/ChaseSystem';
+import { EmptySpot } from '../peekaboo/EmptySpot';
 import { disposeObject3D } from '../peekaboo/SpotShapes';
 import { SpotSystem } from '../peekaboo/SpotSystem';
 import type { SceneConfig } from '../types';
@@ -23,6 +25,10 @@ export class SceneRoot {
   readonly group = new THREE.Group();
   readonly spots: SpotSystem;
   readonly animals: AnimalSystem;
+  /** モードB（§4-5）のときだけ。モードAでは null */
+  readonly chase: ChaseSystem | null;
+  /** §4-6。モードAでも空の場所は起きないが、**外さない**（不変条件3b の保険） */
+  readonly empty: EmptySpot;
 
   /** 床。隠れ場所が宙に浮いて見えないように敷くだけ */
   private readonly floor: THREE.Mesh;
@@ -31,10 +37,14 @@ export class SceneRoot {
     readonly config: SceneConfig,
     spots: SpotSystem,
     animals: AnimalSystem,
+    chase: ChaseSystem | null,
+    empty: EmptySpot,
     floor: THREE.Mesh
   ) {
     this.spots = spots;
     this.animals = animals;
+    this.chase = chase;
+    this.empty = empty;
     this.floor = floor;
     this.group.add(floor);
     this.group.add(spots.group);
@@ -47,8 +57,12 @@ export class SceneRoot {
    * `backgroundUrl` / `modelUrl` が null なら手続き生成に落ちるし、
    * 404 でも `AssetLoader` が黙って null を返す。ここで例外は投げない。
    */
-  static async build(config: SceneConfig, assets: AssetLoader): Promise<SceneRoot> {
-    const spots = new SpotSystem(config.spots);
+  static async build(
+    config: SceneConfig,
+    assets: AssetLoader,
+    options: { chaseSeed?: number } = {}
+  ): Promise<SceneRoot> {
+    const spots = new SpotSystem(config.spots, config.mode);
 
     // 素材のURLは必ず `resolveAssetUrl()` を通す（`AssetLoader` の中で通している）。
     // いまは背景も動物も null なので何も読まないが、**経路だけ先に通しておく**。
@@ -68,11 +82,39 @@ export class SceneRoot {
     floor.rotation.x = -0.12;
 
     const animals = new AnimalSystem(spots);
-    return new SceneRoot(config, spots, animals, floor);
+
+    // モードB（§4-5）。走り手はデータではなく実行時にどこかへ入れる。
+    // **`SpotConfig.animals` は空配列のまま**（§5-1）
+    let chase: ChaseSystem | null = null;
+    if (config.mode === 'chase' && config.runner && spots.runtimes.length > 0) {
+      const start = spots.runtimes[0];
+      animals.spawn(start, config.runner);
+      chase = new ChaseSystem(spots, animals, {
+        ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed } : {}),
+        startSpotId: start.config.id,
+      });
+    }
+
+    // §4-6。**モードAでも繋いでおく。** 場面のデータを間違えて
+    // 動物の居ない隠れ場所を作ってしまっても、無反応にはならない（不変条件3b）
+    const empty = new EmptySpot(spots);
+    spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
+
+    return new SceneRoot(config, spots, animals, chase, empty, floor);
   }
 
+  /**
+   * 1フレーム進める。
+   *
+   * **順番を変えないこと。**
+   * `SpotSystem` が `out` → `moving` を作り、`ChaseSystem` がそれを拾う。
+   * 逆にすると移動の開始が毎回1フレーム遅れる（4.80秒の表からずれる）。
+   * `AnimalSystem` は最後。両者が決めた `reveal` と位置を見て絵にする。
+   */
   update(dt: number, camera: THREE.Camera): void {
     this.spots.update(dt);
+    this.chase?.update(dt);
+    this.empty.update(dt);
     this.animals.update(dt, this.spots, camera);
   }
 
@@ -84,6 +126,7 @@ export class SceneRoot {
    * ここまで来る前に各システムが捨てているのが正しい姿。
    */
   dispose(): void {
+    this.empty.dispose();
     this.animals.dispose();
     this.spots.dispose();
     disposeObject3D(this.floor);

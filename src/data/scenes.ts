@@ -3,8 +3,11 @@
  *
  * **データだけを置く。ロジックを書かない。**
  *
- * 今回は「おうち」1場面だけ。そと／うみ／のはら は Phase 6 で足す。
- * のはらだけがモードB（`chase`）になる予定なので、`mode` は最初から持たせてある。
+ * いまは「おうち」（モードA）と「のはら」（モードB / §4-5）の2場面。
+ * そと／うみ は Phase 6 で足す。
+ *
+ * **画面上の切替バーはまだ無い**（§12 Phase 6）。のはらを見るには
+ * `__peekaboo.setScene('nohara')` を使う。
  *
  * ------------------------------------------------------------------------
  * **座標は実測して決めた。目分量で置いていない。**
@@ -92,7 +95,67 @@ const OUCHI: SceneConfig = {
   ],
 };
 
-export const SCENES: readonly SceneConfig[] = [OUCHI];
+/**
+ * のはら（モードB「おいかけっこ」/ §4-5 / §5-3）。
+ *
+ * ------------------------------------------------------------------------
+ * **4箇所とも同じ「くさむら」にしてある。** 手抜きではなく、
+ * 形が4種類あると移動先ではなく形のほうを見てしまうため（§5-3）。
+ * 「どこに入ったか」だけに注意を向けさせたい。
+ *
+ * **`animals` は全部 空配列。** 誰がどこに居るかは実行時に決まる（§5-1）。
+ * うさぎが居ない3箇所も**当たり判定はそのまま持つ**。
+ * 空だからと判定を外すと、この場面でいちばん多い操作
+ * （4回に3回は空振り）が無反応になる（不変条件3b / §4-6）。
+ *
+ * 座標はおうちと同じ。同じ 2×2 なので、当たり判定の実測値もそのまま通じる
+ * （いちばん近い組は「ふとん - とびら」と同じ 204.8px）。
+ * ------------------------------------------------------------------------
+ */
+const NOHARA: SceneConfig = {
+  id: 'nohara',
+  label: 'のはら',
+  mode: 'chase',
+  backgroundUrl: null,
+  ambientSound: null,
+  runner: 'usagi',
+  spots: [
+    {
+      id: 'kusa1',
+      kind: 'bush',
+      position: [-1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: [],
+    },
+    {
+      id: 'kusa2',
+      kind: 'bush',
+      position: [1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: [],
+    },
+    {
+      id: 'kusa3',
+      kind: 'bush',
+      position: [-1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: [],
+    },
+    {
+      id: 'kusa4',
+      kind: 'bush',
+      position: [1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: [],
+    },
+  ],
+};
+
+export const SCENES: readonly SceneConfig[] = [OUCHI, NOHARA];
 
 export const DEFAULT_SCENE_ID = OUCHI.id;
 
