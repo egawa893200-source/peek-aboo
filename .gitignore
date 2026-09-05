@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+.vite/
+
+# テスト成果物
+/test-results/
+/playwright-report/
+/playwright/.cache/

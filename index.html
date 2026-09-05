@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 幼児がブラウザUIに触れないようにする（不変条件5） -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#12203a" />
+    <meta name="description" content="ばあ！ — いないいないばあで遊ぶアプリ" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ばあ！" />
+    <title>ばあ！</title>
+  </head>
+  <body>
+    <!-- 背景（静止画 or 手続き生成。§5-1 backgroundUrl） -->
+    <div id="background-layer" class="layer" aria-hidden="true"></div>
+
+    <!-- WebGL キャンバス（隠れ場所と動物） -->
+    <div id="webgl-layer" class="layer"></div>
+
+    <!-- 波紋 / UI -->
+    <div id="overlay-layer" class="layer">
+      <div id="ripples" class="ripples" aria-hidden="true"></div>
+      <div id="ui-root" class="ui-root"></div>
+    </div>
+
+    <div id="loading-root"></div>
+
+    <noscript>
+      <p style="color: #fff; font-family: sans-serif; padding: 2rem">
+        このアプリを見るには JavaScript を有効にしてください。
+      </p>
+    </noscript>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
