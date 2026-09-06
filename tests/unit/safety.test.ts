@@ -25,6 +25,18 @@ import { describe, expect, it } from 'vitest';
 import { ANIMALS } from '../../src/data/animals';
 import { CUTOUT_SIZES } from '../../src/data/cutoutSizes';
 import type { SceneConfig } from '../../src/types';
+import { Surprise, SURPRISE_CHANCE, SURPRISE_TOTAL_SEC } from '../../src/peekaboo/Surprise';
+
+/** サプライズの最短間隔を必ず跨ぐ長さ。**間隔の制限ではなく抽選を測る**ため */
+const MIN_GAP_FOR_TEST = 3.0;
+
+/** サプライズが大きさを決めるのに使うカメラ。実機と同じ画角 */
+function camera(): THREE.PerspectiveCamera {
+  const c = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
+  c.position.set(0, 0.3, 7.2);
+  c.updateMatrixWorld(true);
+  return c;
+}
 import { findScene, SCENES } from '../../src/data/scenes';
 import {
   AnimalSystem,
@@ -1349,5 +1361,97 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
         ).toBeLessThan(d);
       }
     }
+  });
+});
+
+describe('§6-3 サプライズ「ばあっ！」', () => {
+  /** テストから抽選だけを回す。カメラは要らない（`update` を呼ばなければ作らない） */
+  function surpriseRig(seed = 20260906, chance = SURPRISE_CHANCE) {
+    const s = new Surprise({ seed, chance, reducedMotion: false });
+    const tex = new THREE.Texture();
+    tex.image = { width: 329, height: 461 };
+    s.setTextures(new Map([['neko', tex]]));
+    return s;
+  }
+
+  it('だいたい3回に1回出る（人間が決めた頻度。§6-3 の 1/10〜1/30 より高い）', () => {
+    const s = surpriseRig();
+    let fired = 0;
+    for (let i = 0; i < 600; i++) {
+      // 最短間隔を跨がせる。ここを詰めると「間隔の制限」を測ることになる
+      s.update(MIN_GAP_FOR_TEST, camera());
+      if (s.maybeTrigger('neko')) fired++;
+    }
+    const rate = fired / 600;
+    // **抽選の当たり（0.5）と、実際に出る割合（1/3）は別物。**
+    // 出た次の回を必ず外すので、長い目で見た割合は p / (1 + p) に寄る。
+    // ここで見るのは**実際に出る割合**のほう
+    expect(rate, `実測 ${(rate * 100).toFixed(1)}%`).toBeGreaterThan(0.28);
+    expect(rate, `実測 ${(rate * 100).toFixed(1)}%`).toBeLessThan(0.38);
+  });
+
+  it('2回続けては出ない', () => {
+    const s = surpriseRig();
+    let prev = false;
+    for (let i = 0; i < 600; i++) {
+      s.update(MIN_GAP_FOR_TEST, camera());
+      const now = s.maybeTrigger('neko');
+      expect(now && prev, `${i} 回目で2連続`).toBe(false);
+      prev = now;
+    }
+  });
+
+  it('絵が無い動物では出ない（不変条件7）', () => {
+    const s = surpriseRig();
+    for (let i = 0; i < 100; i++) {
+      s.update(MIN_GAP_FOR_TEST, camera());
+      expect(s.maybeTrigger('inu')).toBe(false);
+    }
+    expect(s.getFiredCount()).toBe(0);
+  });
+
+  it('出ているあいだに押しても、いつもどおり動物が出る（不変条件2）', () => {
+    // サプライズは three の板で、DOM の入力を塞がない。
+    // ここでは「隠れ場所の側が何も止められていない」ことを見る
+    const { spots, animals, advance } = rig();
+    const s = surpriseRig();
+    advance(0.5);
+    s.update(0.016, camera());
+    expect(s.maybeTrigger('neko')).toBe(true);
+
+    const before = spots.getResponseCount();
+    for (const spot of spots.runtimes) spots.tap(spot);
+    expect(spots.getResponseCount() - before).toBe(spots.runtimes.length);
+
+    // 出ているあいだも、登場は最後まで走る
+    advance(0.8);
+    for (const spot of spots.runtimes) {
+      expect(animals.getExposure(spot)!.fraction, spot.config.id).toBeGreaterThan(0.5);
+    }
+  });
+
+  it('走っているあいだ、色を変えない（不変条件6）', () => {
+    const s = surpriseRig();
+    const cam = camera();
+    s.update(0.016, cam);
+    expect(s.maybeTrigger('neko')).toBe(true);
+    for (let t = 0; t < SURPRISE_TOTAL_SEC; t += DT) {
+      s.update(DT, cam);
+      const mesh = s.group.children[0] as THREE.Mesh | undefined;
+      if (!mesh) continue;
+      const mat = mesh.material as THREE.MeshBasicMaterial;
+      expect(mat.color.getHex()).toBe(0xffffff);
+    }
+  });
+
+  it('走りきったら止まり、捨てたら何も残らない', () => {
+    const s = surpriseRig();
+    const cam = camera();
+    s.update(0.016, cam);
+    expect(s.maybeTrigger('neko')).toBe(true);
+    for (let t = 0; t < SURPRISE_TOTAL_SEC + 0.1; t += DT) s.update(DT, cam);
+    expect(s.isRunning()).toBe(false);
+    s.dispose();
+    expect(s.group.children.length).toBe(0);
   });
 });

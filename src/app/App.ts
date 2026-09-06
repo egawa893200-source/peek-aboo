@@ -31,6 +31,7 @@ import { ScreenProjector } from '../core/ScreenProjector';
 import { WakeLock } from '../core/WakeLock';
 import { DEFAULT_SCENE_ID, findScene, SCENES } from '../data/scenes';
 import type { SpotRuntime, SpotSnapshot } from '../peekaboo/SpotSystem';
+import { Surprise } from '../peekaboo/Surprise';
 import { SceneRoot } from '../scene/SceneRoot';
 import { ParentalGate } from '../ui/ParentalGate';
 import { Ripple } from '../ui/Ripple';
@@ -56,6 +57,11 @@ export class App {
   private readonly projector: ScreenProjector;
   private readonly gate: ParentalGate;
   private readonly scene = new THREE.Scene();
+  /**
+   * §6-3 のサプライズ。**場面をまたいで使い回す**（カメラの子なので、
+   * 場面を作り直すたびに付け替える必要がない）
+   */
+  private readonly surprise = new Surprise();
 
   private sceneRoot: SceneRoot | null = null;
   private sceneId = DEFAULT_SCENE_ID;
@@ -91,12 +97,20 @@ export class App {
     this.scene.add(key);
     this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x4a4436, 1.1));
 
+    // §6-3 のサプライズは**カメラの子**にする。カメラ空間に置けば、
+    // 画面のどこにどれだけの大きさで出るかが素直に決まる。
+    // **カメラを scene に入れないと、その子は描かれない**（three の仕様）
+    this.scene.add(this.renderer.camera);
+    this.renderer.camera.add(this.surprise.group);
+    this.surprise.onVoice(() => this.audio.playVoice('baa'));
+
     this.input.onTap((tap) => this.onTap(tap.screenX, tap.screenY));
 
     this.loop.onUpdate((ctx) => {
       this.quality.sample(this.loop.rawDelta);
       this.renderer.setResolutionScale(this.quality.settings.resolutionScale);
       this.sceneRoot?.update(ctx.dt, this.renderer.camera);
+      this.surprise.update(ctx.dt, this.renderer.camera);
     });
     this.loop.onRender(() => this.renderer.render(this.scene));
   }
@@ -138,6 +152,8 @@ export class App {
       // 続けて別の隠れ場所を押すと声が落ちて「ばあっ！が返らない回」ができる。
       next.spots.onVoice(() => this.audio.playVoice('baa'));
       next.spots.onPeak((spot) => this.onPeak(next, spot));
+      // §6-3。絵が無い動物は出さない（不変条件7）
+      this.surprise.setTextures(next.cutouts);
 
       // ふたが開きはじめたら、形に合った音を返す。
       // くさむらは葉をかき分ける「ワサワサ」（§4-5 / §4-6）
@@ -195,12 +211,21 @@ export class App {
   private onPeak(root: SceneRoot, spot: SpotRuntime): void {
     root.animals.requestFlash(spot);
     this.audio.playOneShot('bubble');
+    // §6-3。**外れても何も止めない。** いつもどおり動物は出ている
+    const animalId = root.animals.getSlot(spot.config.id)?.config.id;
+    if (animalId) this.surprise.maybeTrigger(animalId);
   }
 
   /** E2E と実機確認のためのデバッグ API */
   createDebugApi() {
     return {
       getTapCount: (): number => this.taps,
+      /** §6-3 のサプライズ。抽選した回数と、実際に出した回数 */
+      getSurprise: (): { rolled: number; fired: number; running: boolean } => ({
+        rolled: this.surprise.getRolledCount(),
+        fired: this.surprise.getFiredCount(),
+        running: this.surprise.isRunning(),
+      }),
       getFrameCount: (): number => this.loop.frameCount,
       /**
        * 更新が進めた時間（秒）。**壁時計ではない**（`Loop.simulatedSeconds`）。
@@ -300,6 +325,7 @@ export class App {
   }
 
   dispose(): void {
+    this.surprise.dispose();
     this.loop.dispose();
     this.input.dispose();
     this.ripple.dispose();

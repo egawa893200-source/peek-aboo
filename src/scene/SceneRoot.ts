@@ -32,6 +32,12 @@ export class SceneRoot {
   /** §4-6。モードAでも空の場所は起きないが、**外さない**（不変条件3b の保険） */
   readonly empty: EmptySpot;
 
+  /**
+   * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
+   * **`AssetLoader` が持っているので、ここでは捨てない**
+   */
+  readonly cutouts: ReadonlyMap<string, THREE.Texture>;
+
   /** 床。隠れ場所が宙に浮いて見えないように敷くだけ */
   private readonly floor: THREE.Mesh;
   /** 手続き生成の背景と影。**`AssetLoader` は持っていないので自分で捨てる** */
@@ -56,8 +62,10 @@ export class SceneRoot {
     floor: THREE.Mesh,
     backdrop: THREE.Texture | null,
     shadowTexture: THREE.Texture | null,
-    shadows: readonly THREE.Mesh[]
+    shadows: readonly THREE.Mesh[],
+    cutouts: ReadonlyMap<string, THREE.Texture>
   ) {
+    this.cutouts = cutouts;
     this.backdrop = backdrop;
     this.shadowTexture = shadowTexture;
     this.shadows = shadows;
@@ -166,7 +174,7 @@ export class SceneRoot {
     const empty = new EmptySpot(spots);
     spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
 
-    return new SceneRoot(config, spots, animals, chase, empty, floor, backdrop, shadowTexture, shadows);
+    return new SceneRoot(config, spots, animals, chase, empty, floor, backdrop, shadowTexture, shadows, cutouts);
   }
 
   /**
