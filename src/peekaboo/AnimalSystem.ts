@@ -19,6 +19,7 @@ import * as THREE from 'three';
 
 import { findAnimal } from '../data/animals';
 import type { AnimalConfig } from '../types';
+import { createCutoutAnimal } from './CutoutAnimal';
 import { createProceduralAnimal, HINT_EXPOSURE, type ProceduralAnimal } from './ProceduralAnimals';
 import type { SpotRuntime, SpotSystem } from './SpotSystem';
 
@@ -145,7 +146,18 @@ export class AnimalSystem {
    *   省略時は環境から読む。node（単体テスト）には `matchMedia` が無いので、
    *   **例外を投げずに false に落とす**。
    */
-  constructor(spots: SpotSystem, reducedMotion = detectReducedMotion()) {
+  /**
+   * 絵をそのまま貼るための素材（道A）。`SceneRoot` が場面ごとに読んで渡す。
+   * **空でも動く。** その場合は全部が手続き生成になる（不変条件7）
+   */
+  private readonly cutouts: ReadonlyMap<string, THREE.Texture>;
+
+  constructor(
+    spots: SpotSystem,
+    reducedMotion = detectReducedMotion(),
+    cutouts: ReadonlyMap<string, THREE.Texture> = new Map()
+  ) {
+    this.cutouts = cutouts;
     this.glowScale = reducedMotion ? 0.3 : 1;
 
     for (const spot of spots.runtimes) {
@@ -166,7 +178,10 @@ export class AnimalSystem {
     const config = findAnimal(animalId);
     if (!config) return null;
 
-    const built = createProceduralAnimal(config);
+    // **絵があれば絵を貼る。無ければ手続き生成**（不変条件7）。
+    // `AnimalSystem` から先は、どちらで作られたか知らないままで動く
+    const cutout = this.cutouts.get(animalId);
+    const built = cutout ? createCutoutAnimal(config, cutout) : createProceduralAnimal(config);
     const scale = config.scale;
     const coverTopY = spot.shape.coverTopY;
 

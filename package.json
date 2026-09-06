@@ -15,7 +15,8 @@
     "verify": "npm run typecheck && npm run test && npm run test:e2e",
     "shot": "node scripts/shot.mjs",
     "ref-split": "node scripts/ref-split.mjs",
-    "match-score": "node scripts/match-score.mjs"
+    "match-score": "node scripts/match-score.mjs",
+    "cutouts": "node scripts/make-cutouts.mjs"
   },
   "dependencies": {
     "three": "^0.185.1"

@@ -39,7 +39,10 @@ import type { SpotKind } from '../types';
  * **ここに置いてあるのは、`SpotShapes` がこの階層でいちばん下の
  * モジュールだから**（ここから上へ import すると循環する）。
  */
-export function disposeObject3D(root: THREE.Object3D): void {
+export function disposeObject3D(
+  root: THREE.Object3D,
+  options: { keepTextures?: boolean } = {}
+): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
 
@@ -58,7 +61,13 @@ export function disposeObject3D(root: THREE.Object3D): void {
   for (const m of materials) {
     // マテリアルが抱えているテクスチャも捨てる。
     // material.dispose() はテクスチャまでは面倒を見てくれない。
-    for (const value of Object.values(m as unknown as Record<string, unknown>)) {
+    //
+    // **`keepTextures` のときは捨てない。** 絵を貼った動物（CutoutAnimal）の
+    // テクスチャは `AssetLoader` が持っていて場面をまたいで使い回すので、
+    // ここで捨てると場面を作り直すたびに読み直しになる
+    for (const value of options.keepTextures
+      ? []
+      : Object.values(m as unknown as Record<string, unknown>)) {
       if (value instanceof THREE.Texture) value.dispose();
     }
     m.dispose();

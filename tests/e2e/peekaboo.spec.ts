@@ -376,8 +376,45 @@ test.describe('描画量と当たり判定の実測（§10-2）', () => {
     expect(info.triangles).toBeGreaterThan(0);
     expect(info.triangles).toBeLessThan(20_000);
     expect(info.calls).toBeLessThan(120);
-    // テクスチャは1枚も使っていない（すべて単色。不変条件7 の確認にもなる）
-    expect(await page.evaluate(() => window.__peekaboo.getTextureBytes().bytes)).toBe(0);
+    // **ここは 2026-09-06 に人間が決めて中身を入れ替えた。**
+    //
+    // もとは「テクスチャは1枚も使っていない（bytes === 0）」だった。
+    // 道A（参照画像をそのまま貼る）を採ったので、この前提は成り立たない。
+    // ただし**判定を緩めたのではなく、移した**:
+    //   ・ここでは「載せすぎていないこと」を天井で見る
+    //   ・もとの assertion が代わりに守っていた不変条件7（素材が無くても動く）は、
+    //     下の「素材を落としてもアプリは動く」で**直接**見る。こちらのほうが強い
+    const texture = await page.evaluate(() => window.__peekaboo.getTextureBytes());
+    console.log(`[実測] テクスチャ ${(texture.bytes / 1024 / 1024).toFixed(2)}MB / ${texture.count}枚`);
+    expect(texture.bytes).toBeLessThan(24 * 1024 * 1024);
+  });
+});
+
+test.describe('不変条件7 — 素材が1つも無くても起動する', () => {
+  test('動物の絵を全部落としても、起動して、どこを押しても反応が返る', async ({ page }) => {
+    // **404 ではなく abort にする。** 実機で素材を置き忘れた状態を再現したい
+    await page.route('**/animals/*.webp', (route) => route.abort());
+
+    await boot(page);
+    const spots = await spotCenters(page);
+    expect(spots.length).toBeGreaterThanOrEqual(4);
+
+    // 手続き生成に落ちているので、三角形は増えているはず
+    const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());
+    expect(info.triangles).toBeGreaterThan(0);
+
+    const before = await page.evaluate(() => window.__peekaboo.getSpotResponseCount());
+    for (const s of spots) await page.mouse.click(s.x, s.y);
+    const after = await page.evaluate(() => window.__peekaboo.getSpotResponseCount());
+    expect(after - before).toBe(spots.length);
+
+    // 隠れているあいだ、体の一部が縁から見えていること（不変条件3）
+    await page.evaluate(() => window.__peekaboo.reloadScene());
+    await page.waitForFunction(() => window.__peekaboo.isReady());
+    const exposures = await page.evaluate(() =>
+      window.__peekaboo.getSpots().map((s) => window.__peekaboo.getExposure(s.id)?.fraction ?? -1)
+    );
+    for (const e of exposures) expect(e).toBeGreaterThan(0);
   });
 });
 

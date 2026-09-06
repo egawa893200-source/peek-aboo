@@ -122,6 +122,12 @@ export interface AnimalConfig {
    * **`bodyPlan` / `headTop` / `snout` / `tail` を必ず指定すること。**
    * 省略すると耳も鼻も尾も無い塊になり、どの動物も同じ輪郭になる（§5-2）。
    */
+  /**
+   * 絵をそのまま貼るときの素材（道A）。`/animals/neko.webp` のような
+   * ルート絶対パス。**null なら手続き生成に落ちる**（不変条件7）。
+   * 読み込みは `SceneRoot` がまとめて行い、`AnimalSystem` に渡す。
+   */
+  cutoutUrl?: string | null;
   bodyPlan?: BodyPlan;
   headTop?: HeadTop;
   snout?: Snout;

@@ -14,11 +14,13 @@
 import * as THREE from 'three';
 
 import type { AssetLoader } from '../core/AssetLoader';
+import { findAnimal } from '../data/animals';
 import { AnimalSystem } from '../peekaboo/AnimalSystem';
 import { ChaseSystem } from '../peekaboo/ChaseSystem';
 import { EmptySpot } from '../peekaboo/EmptySpot';
 import { disposeObject3D } from '../peekaboo/SpotShapes';
 import { SpotSystem } from '../peekaboo/SpotSystem';
+import { createBackdropTexture, createContactShadow, createShadowTexture } from './Backdrop';
 import type { SceneConfig } from '../types';
 
 export class SceneRoot {
@@ -32,6 +34,18 @@ export class SceneRoot {
 
   /** 床。隠れ場所が宙に浮いて見えないように敷くだけ */
   private readonly floor: THREE.Mesh;
+  /** 手続き生成の背景と影。**`AssetLoader` は持っていないので自分で捨てる** */
+  private readonly backdrop: THREE.Texture | null;
+  private readonly shadowTexture: THREE.Texture | null;
+  /**
+   * 接地影の板。
+   *
+   * **`SpotSystem` の子にしても、あちらは捨ててくれない。**
+   * 自分で作ったものは自分で捨てる（不変条件8）。
+   * 入れ忘れたときは、場面を10往復して geometry が 35 → 75 に増えた
+   * （4箇所 × 10往復 = 40 枚ぶん）。e2e が捕まえた
+   */
+  private readonly shadows: readonly THREE.Mesh[];
 
   private constructor(
     readonly config: SceneConfig,
@@ -39,8 +53,14 @@ export class SceneRoot {
     animals: AnimalSystem,
     chase: ChaseSystem | null,
     empty: EmptySpot,
-    floor: THREE.Mesh
+    floor: THREE.Mesh,
+    backdrop: THREE.Texture | null,
+    shadowTexture: THREE.Texture | null,
+    shadows: readonly THREE.Mesh[]
   ) {
+    this.backdrop = backdrop;
+    this.shadowTexture = shadowTexture;
+    this.shadows = shadows;
     this.spots = spots;
     this.animals = animals;
     this.chase = chase;
@@ -69,11 +89,19 @@ export class SceneRoot {
     // 通っていないことは、素材を置いた日まで気づけない（CLAUDE.md）。
     const background = await assets.loadOptionalTexture(config.backgroundUrl);
 
+    // 背景。素材があればそれを、無ければ手続き生成のグラデーションを敷く（道D）。
+    // **単色の板をやめる。** 空も地面も奥行きも無いのが「安っぽさ」の正体だった。
+    // `document` が無い環境（単体テスト）では単色のまま落とす（例外を投げない）
+    const backdrop =
+      !background && typeof document !== 'undefined'
+        ? createBackdropTexture('#3d5c8c', '#0b1526')
+        : null;
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x2a3550,
+      color: backdrop ? 0xffffff : 0x2a3550,
       roughness: 1,
       metalness: 0,
       ...(background ? { map: background } : {}),
+      ...(backdrop ? { map: backdrop } : {}),
     });
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), floorMat);
     // 隠れ場所より奥に、少しだけ手前に倒して敷く。
@@ -81,7 +109,41 @@ export class SceneRoot {
     floor.position.set(0, 0, -1.6);
     floor.rotation.x = -0.12;
 
-    const animals = new AnimalSystem(spots);
+    // 絵をそのまま貼る動物（道A）の素材を、場面ぶんまとめて読む。
+    // **1枚でも読めなければ、その動物だけ手続き生成に落ちる**（不変条件7）。
+    // ここで待つのは、`AnimalSystem.spawn()` が同期だから。
+    // 場面の構築はもともと非同期（背景と同じ経路）なので待ち時間は増えない
+    const wanted = new Set<string>();
+    for (const spot of config.spots) for (const id of spot.animals) wanted.add(id);
+    if (config.runner) wanted.add(config.runner);
+    const cutouts = new Map<string, THREE.Texture>();
+    await Promise.all(
+      [...wanted].map(async (id) => {
+        const url = findAnimal(id)?.cutoutUrl ?? null;
+        const tex = await assets.loadOptionalTexture(url);
+        if (tex) cutouts.set(id, tex);
+      })
+    );
+
+    // 接地影（道D）。**`shadowMap` は使わない。**
+    // 光源1つ・カメラ固定なので影の形は動かない。動かない影を毎フレーム
+    // 描き直す理由が無いし、shadowMap はスマホでいちばん高くつく
+    let shadowTexture: THREE.Texture | null = null;
+    const shadows: THREE.Mesh[] = [];
+    if (typeof document !== 'undefined') {
+      shadowTexture = createShadowTexture();
+      for (const runtime of spots.runtimes) {
+        const shadow = createContactShadow(shadowTexture, runtime.shape.mouthWidth * 1.9);
+        // 隠れ場所の底より少し下、少し奥。**手前に出さないこと。**
+        // 出すと動物の足元に黒い帯が乗る。
+        // 板は立てたまま（寝かせると見下ろし 11.8° では見えない）
+        shadow.position.set(0, runtime.shape.coverBottomY - 0.1, -0.3);
+        runtime.group.add(shadow);
+        shadows.push(shadow);
+      }
+    }
+
+    const animals = new AnimalSystem(spots, undefined, cutouts);
 
     // モードB（§4-5）。走り手はデータではなく実行時にどこかへ入れる。
     // **`SpotConfig.animals` は空配列のまま**（§5-1）
@@ -104,7 +166,7 @@ export class SceneRoot {
     const empty = new EmptySpot(spots);
     spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
 
-    return new SceneRoot(config, spots, animals, chase, empty, floor);
+    return new SceneRoot(config, spots, animals, chase, empty, floor, backdrop, shadowTexture, shadows);
   }
 
   /**
@@ -130,6 +192,11 @@ export class SceneRoot {
    * ここまで来る前に各システムが捨てているのが正しい姿。
    */
   dispose(): void {
+    // 自分で作ったものは自分で捨てる（不変条件8）。
+    // 影の板は `SpotSystem` の子だが、あちらは捨ててくれない
+    for (const shadow of this.shadows) disposeObject3D(shadow, { keepTextures: true });
+    this.backdrop?.dispose();
+    this.shadowTexture?.dispose();
     this.empty.dispose();
     this.animals.dispose();
     this.spots.dispose();
