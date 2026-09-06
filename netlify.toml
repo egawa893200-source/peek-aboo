@@ -1,0 +1,46 @@
+# Netlify での公開設定
+#
+# Netlify を使う理由:
+#   ① リポジトリを private にしたい（無料プランの GitHub Pages は
+#      public リポジトリでしか使えない。Netlify は private でも無料で使える）
+#   ② URL に個人のアカウント名を出したくない
+#      （Pages は必ず <ユーザー名>.github.io になる。Netlify は好きな名前を選べる）
+#
+# **無料プランは右下に「Powered by Netlify」のバッジを自動で挿入する。**
+# これは position:fixed で z-index も高く、こちらの CSS では動かせない。
+# 画面下部に UI を置くときは styles.css の --badge-reserve のぶん上に逃がすこと。
+# バッジはリンクなので、押すと外部サイトに飛ぶ（§2 の外部リンク禁止に触れる）。
+# 気にするなら Cloudflare Pages（無料・バッジなし・private 可）に移す。
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # package.json の engines に合わせる
+  NODE_VERSION = "22"
+  # BASE_PATH は設定しないこと。
+  # Netlify はサイトの直下（/）で配信するので、vite の base は既定の '/' でよい。
+
+# Service Worker は毎回サーバに確認させる。
+# ここを長期キャッシュにすると、渡した相手の端末が古い版のまま更新されなくなる。
+# 中身（assets/*.js）はファイル名にハッシュが入っているので長期キャッシュでよい。
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

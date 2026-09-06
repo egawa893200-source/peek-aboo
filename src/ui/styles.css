@@ -1,0 +1,283 @@
+/* =========================================================================
+   ばあ！ — グローバルスタイル
+   §2 幼児向け必須要件：ブラウザUIに触れさせない／誤操作で壊れない
+
+   出どころ: 水族館アプリ「みずのなか」の src/ui/styles.css。
+   ブラウザの既定ジェスチャを殺す部分は実機で検証済みなので触らないこと。
+   ========================================================================= */
+
+:root {
+  --deep: #12203a;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /*
+   * Netlify の無料プランは、配信するページの右下に
+   * 「Powered by Netlify」のバッジを自動で挿入する（こちらの HTML には無い）。
+   * これが画面右下に固定表示され、**切替バーのいちばん右のボタンに覆いかぶさって
+   * 押せなくなっていた**（実機で報告あり）。バッジ側は position:fixed で
+   * z-index も高く、こちらの CSS では動かせない。
+   *
+   * バッジを消すのは規約上できないので、**こちらが上に逃げる**。
+   * 画面下部に置く UI（場面の切替バーなど）は、必ずこのぶんを空けること。
+   *
+   * 48px は「バッジの高さ（約28px）＋ 下の余白（約12px）＋ 予備」。
+   * 開発サーバにはバッジが出ないが、**値は常に確保する**。
+   *   - 出ているときだけ空ける実装は、Netlify がバッジの DOM を変えた瞬間に
+   *     黙って壊れて「押せない」に戻る（不変条件1 に反する）
+   *   - 常に空けておけば、開発中に見えている絵と実機の絵が一致する
+   */
+  --badge-reserve: 48px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--deep);
+
+  /* プルダウン更新・バウンススクロール禁止 */
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+
+  /* ピンチズーム・ダブルタップズーム禁止 */
+  touch-action: none;
+
+  /* テキスト選択・長押しメニュー禁止 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+
+  /* タップ時のハイライトを消す */
+  -webkit-tap-highlight-color: transparent;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP',
+    sans-serif;
+  color: #f2f6ff;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+}
+
+/* --- レイヤー ------------------------------------------------------------ */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#background-layer {
+  z-index: 1;
+  background: var(--deep);
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+}
+
+#webgl-layer {
+  z-index: 2;
+  pointer-events: none;
+}
+
+#webgl-layer canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none;
+}
+
+#overlay-layer {
+  z-index: 3;
+  pointer-events: none; /* 子要素で個別に有効化する */
+}
+
+.ripples {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* --- 波紋（§4-3 の 0.00s「押した実感」）------------------------------------------------- */
+
+.ripple {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* 直径 220px。scale 0 → 1 で 0.5秒かけて広がる */
+  width: 220px;
+  height: 220px;
+  margin: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  border: 2px solid rgba(226, 246, 255, 0.8);
+  box-shadow:
+    0 0 14px rgba(180, 230, 255, 0.45),
+    inset 0 0 26px rgba(180, 230, 255, 0.22);
+  will-change: transform, opacity;
+}
+
+/* 画面全体に広がる波紋（場面を切り替えたときに使う） */
+.ripple--fullscreen {
+  width: 100%;
+  height: 100%;
+  left: 50%;
+  top: 50%;
+  border-width: 3px;
+  z-index: 6;
+}
+
+/* --- 場面切替のトランジション（§12 Phase 6）------------------------------ */
+
+/*
+ * 暗転は残す（前後の場面が1フレーム混ざるのを隠すため）。
+ * みずのなかは 400ms + 600ms で、シーンの構築を待たなくても1秒かかっていた。
+ * 「切替に時間がかかっている」と実機で言われて 220ms + 320ms に短くした。
+ * **アプリ側の定数とこの値を必ず揃えること。**
+ */
+.scene-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--deep);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.scene-fade.is-out {
+  opacity: 1;
+}
+
+.scene-fade.is-in {
+  opacity: 0;
+  transition-duration: 320ms;
+}
+
+.ui-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* --- ペアレンタルゲート（§2）------------------------------------------- */
+
+.gate__hotspot {
+  position: absolute;
+  top: calc(6px + var(--safe-top));
+  right: calc(6px + var(--safe-right));
+  /* §2: 画面右上の小さな領域。目立たせない */
+  width: 24px;
+  height: 24px;
+  z-index: 6;
+  pointer-events: auto;
+  touch-action: none;
+  display: grid;
+  place-items: center;
+}
+
+.gate__progress {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: none;
+}
+
+/* 長押し中だけ、ゆっくり育って「押せている」ことを保護者に伝える */
+.gate__progress.is-holding {
+  animation: gate-hold 2s linear forwards;
+}
+
+@keyframes gate-hold {
+  from {
+    transform: scale(1);
+    background: rgba(255, 255, 255, 0.2);
+  }
+  to {
+    transform: scale(2.4);
+    background: rgba(255, 255, 255, 0.75);
+  }
+}
+
+.gate__confirm,
+.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+  background: rgba(2, 10, 18, 0.72);
+  pointer-events: auto;
+  overscroll-behavior: contain;
+}
+
+.gate__card {
+  background: #0d2536;
+  border-radius: 18px;
+  padding: 24px 28px;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  max-width: 340px;
+}
+
+.gate__label {
+  font-size: 15px;
+  margin-bottom: 18px;
+  color: #d6ecf8;
+}
+
+.gate__dots {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.gate__dot {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.gate__cancel,
+.settings__close {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #cfe6f5;
+  border-radius: 10px;
+  padding: 8px 18px;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* --- 明滅と動きの抑制（不変条件6）--------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple {
+    /* 光の演出を弱める。消しはしない（不変条件1: 反応は必ず返す） */
+    box-shadow: none;
+    border-color: rgba(226, 246, 255, 0.5);
+  }
+}
