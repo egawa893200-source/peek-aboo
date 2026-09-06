@@ -323,10 +323,18 @@ async function main() {
       await writeFile(resolve(OUT_DIR, 'match-score.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     }
 
-    for (const view of only ? [] : ['front', 'side']) {
-      const sheet = await page.evaluate(buildSheetInPage, { items: overlays[view], cell: 256, cols: 4 });
+    if (only) {
+      // 1体だけのときは、正面と側面を並べた大きい絵を出す（直しながら見るため）
+      const items = [...overlays.front, ...overlays.side];
+      const sheet = await page.evaluate(buildSheetInPage, { items, cell: 420, cols: 2 });
       const b64 = sheet.slice(sheet.indexOf(',') + 1);
-      await writeFile(resolve(OUT_DIR, `m1-${view}.png`), Buffer.from(b64, 'base64'));
+      await writeFile(resolve(OUT_DIR, `m1-only-${only}.png`), Buffer.from(b64, 'base64'));
+    } else {
+      for (const view of ['front', 'side']) {
+        const sheet = await page.evaluate(buildSheetInPage, { items: overlays[view], cell: 256, cols: 4 });
+        const b64 = sheet.slice(sheet.indexOf(',') + 1);
+        await writeFile(resolve(OUT_DIR, `m1-${view}.png`), Buffer.from(b64, 'base64'));
+      }
     }
 
     console.log(`M1 シルエット一致（合格ライン ${M1_PASS}）`);

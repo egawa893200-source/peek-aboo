@@ -259,7 +259,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     headTop: 'none',
     snout: 'none',
     tail: 'none',
-    bodyHeight: 0.60,
+    bodyHeight: 0.80,
     // はさみと脚で体幅の 1.8倍まで広がる。いわの開口 1.21 に収めるため絞る
     bodyWidth: 0.68,
   },

@@ -328,7 +328,11 @@ function buildBird(cfg: AnimalConfig, p: Palette, h: number, w: number, d: numbe
  */
 function buildFish(cfg: AnimalConfig, p: Palette, h: number, w: number, d: number): Built {
   const root = new THREE.Group();
-  const bodyLen = w * 1.5;
+  // **体の長さは参照画像から決めた**（M1 / 2026-09-06）。
+  // 1.5 だと横顔の縦横比が 2.01 で、参照の 1.41 に対して4割長かった。
+  // 1.0 で 1.40 になり、IoU が 0.550 → 0.735 に上がった。
+  // 0.85 まで詰めると 1.21 で行きすぎ（0.731 と下がる）
+  const bodyLen = w * 1.0;
   const bodyH = h * 0.72;
 
   const body = ball(p.skin);
@@ -400,6 +404,10 @@ function buildOctopus(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: n
 
   // 足。8本は多すぎて潰れるので6本。手前に広げる。
   //
+  // **先端の球は腕の上に載せること。** headR * 1.8 に置いていたときは
+  // 左右の下に丸い点が2つ浮いていて、それがそのまま「はみ出し」になった。
+  // 重なりの絵（capture/m1-only-tako.png）を見るまで気づかなかった。
+  //
   // **横への広げ方は参照画像から決めた**（M1 / 2026-09-06）。
   // 0.7 / 0.95 だと正面の縦横比が 0.71 で、参照の 1.00 に対して縦長すぎた。
   // 1.3 / 1.8 で 1.08 になり、IoU が 0.659 → 0.687 に上がった。
@@ -409,13 +417,13 @@ function buildOctopus(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: n
   for (let i = 0; i < legs; i++) {
     const a = -0.9 + (1.8 * i) / (legs - 1);
     const leg = cone(p.skin, w * 0.1, h * 0.5, 6);
-    leg.position.set(Math.sin(a) * headR * 1.3, h * 0.24, Math.cos(a) * d * 0.3);
-    leg.rotation.set(0.25, 0, -Math.sin(a) * 0.5);
+    leg.position.set(Math.sin(a) * headR * 1.35, h * 0.24, Math.cos(a) * d * 0.3);
+    leg.rotation.set(0.25, 0, -Math.sin(a) * 0.8);
     // 先を細く、根元を太く見せる
     leg.scale.set(1, 1, 1);
     root.add(leg);
     const tip = ball(p.belly, w * 0.055);
-    tip.position.set(Math.sin(a) * headR * 1.8, h * 0.045, Math.cos(a) * d * 0.34);
+    tip.position.set(Math.sin(a) * headR * 1.45, h * 0.14, Math.cos(a) * d * 0.34);
     root.add(tip);
   }
 
@@ -431,32 +439,45 @@ function buildOctopus(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: n
 
 function buildCrab(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: number): Built {
   const root = new THREE.Group();
-  const bodyY = h * 0.42;
+  const bodyY = h * 0.50;
 
-  // 平たく広い甲羅。**横に広げる。** これがかにの全部
+  // 平たく広い甲羅。**横に広げる。** これがかにの全部。
+  //
+  // **薄くすること**（M1 / 2026-09-06）。h * 0.28 のときは甲羅の下側が
+  // 下へ膨らんで、参照が脚だけの隙間にしているところを埋めていた。
+  // h * 0.18 に薄くして bodyY を上げ、下に脚のための空間を作った。
+  // **大きくしても上がらない。** 0.62/0.22 → 0.629、0.72/0.26 → 0.608、
+  // 0.80/0.30 → 0.569 と、広げるほど下がる（形が違うので面積では埋まらない）
   const shell = ball(p.skin);
-  shell.scale.set(w * 0.62, h * 0.28, d * 0.4);
+  shell.scale.set(w * 0.52, h * 0.18, d * 0.4);
   shell.position.y = bodyY;
   root.add(shell);
 
-  // はさみ。上に構える
+  // はさみ。上に構える。
+  // **小さく、体に寄せる**（M1 / 2026-09-06）。0.16 の球を w*0.74 に
+  // 置いていたときは、参照のはさみより大きく外に出ていて
+  // はみ出しが 0.763 あった。0.12 を w*0.62 に寄せて 0.085 まで減った
   for (const sx of [-1, 1]) {
-    const arm = tube(p.skin, w * 0.07, w * 0.3, 6);
-    arm.position.set(sx * w * 0.58, bodyY + h * 0.06, d * 0.1);
+    const arm = tube(p.skin, w * 0.05, w * 0.3, 6);
+    arm.position.set(sx * w * 0.46, bodyY + h * 0.06, d * 0.1);
     arm.rotation.z = sx * -0.6;
     root.add(arm);
-    const claw = ball(p.warm, w * 0.16);
+    const claw = ball(p.warm, w * 0.12);
     claw.scale.set(1, 1.25, 0.7);
-    claw.position.set(sx * w * 0.74, bodyY + h * 0.28, d * 0.12);
+    claw.position.set(sx * w * 0.62, bodyY + h * 0.22, d * 0.12);
     root.add(claw);
   }
 
-  // 脚。左右3本ずつの短い棒
+  // 脚。左右3本ずつの短い棒。
+  // **細く、少しだけ下へ**（M1 / 2026-09-06）。太さ 0.035 → 0.024。
+  // 傾きは 1.1（ほぼ水平）だと横に張り出すので 0.6 にした。
+  // **垂直に近づけすぎると逆に下がる**（0.2 まで立てると縦に伸びて
+  // 縦横比が 1.19 になり、IoU 0.465）
   for (const sx of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
-      const leg = tube(p.skin, w * 0.035, w * 0.26, 6);
-      leg.position.set(sx * w * 0.5, bodyY - h * 0.16, -d * 0.1 + i * d * 0.16);
-      leg.rotation.z = sx * -1.1;
+      const leg = tube(p.skin, w * 0.024, w * 0.38, 6);
+      leg.position.set(sx * w * 0.46, bodyY - h * 0.24, -d * 0.1 + i * d * 0.16);
+      leg.rotation.z = sx * -0.6;
       root.add(leg);
     }
   }
