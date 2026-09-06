@@ -148,7 +148,9 @@ export type BodyPlan =
   | 'octopus' // たこ。丸い頭＋足
   | 'crab' // かに。平たい体＋はさみ＋目の柄
   | 'insect' // むし。細い胴＋大きな羽
-  | 'frog'; // かえる。平たい体＋頭の上の目
+  | 'frog' // かえる。平たい体＋頭の上の目
+  | 'longneck' // きりん。胴＋長い首＋小さい頭＋4本脚
+  | 'dino'; // 二足の恐竜。大きな頭＋太い尾で釣り合う
 
 /** 頭の上に付くもの。耳だけでなく角やとさかもここ */
 export type HeadTop =
@@ -160,16 +162,19 @@ export type HeadTop =
   | 'tuftEars'
   | 'horns'
   | 'comb'
-  | 'antennae';
+  | 'antennae'
+  | 'bigEars' // ぞうの大きな耳。頭の横に平たく張る
+  | 'frill' // トリケラトプスのえりまき＋3本の角
+  | 'crest'; // プテラノドンの、後ろへ伸びるとさか
 
 /** 顔の前に出るもの */
-export type Snout = 'none' | 'muzzle' | 'point' | 'beak' | 'flat' | 'wide';
+export type Snout = 'none' | 'muzzle' | 'point' | 'beak' | 'flat' | 'wide' | 'trunk';
 
 /** 後ろに付くもの */
-export type TailShape = 'none' | 'thin' | 'bushy' | 'puff' | 'feather' | 'curl';
+export type TailShape = 'none' | 'thin' | 'bushy' | 'puff' | 'feather' | 'curl' | 'long';
 
 /** 体の表面。輪郭を大きく変えるものだけ持つ */
-export type Coat = 'plain' | 'spiky' | 'fluffy' | 'banded' | 'spotted';
+export type Coat = 'plain' | 'spiky' | 'fluffy' | 'banded' | 'spotted' | 'mane' | 'plates' | 'wings';
 
 /* ---- 状態 ---------------------------------------------------------------- */
 

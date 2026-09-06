@@ -330,11 +330,97 @@ const NOUJOU: SceneConfig = {
   ],
 };
 
+const DOBUTSUEN: SceneConfig = {
+  id: "dobutsuen",
+  label: "どうぶつえん",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "iwaba",
+      kind: "rock",
+      position: [-1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["raion"],
+    },
+    {
+      id: "kigearth",
+      kind: "hollow",
+      position: [1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["zou"],
+    },
+    {
+      id: "takaki",
+      kind: "bush",
+      position: [-1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["kirin"],
+    },
+    {
+      id: "hachi",
+      kind: "pot",
+      position: [1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["saru"],
+    },
+  ],
+};
+
+const KYORYU: SceneConfig = {
+  id: "kyoryu",
+  label: "きょうりゅう",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "ooiwa",
+      kind: "rock",
+      position: [-1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["tirano"],
+    },
+    {
+      id: "shida",
+      kind: "bush",
+      position: [1.15, 1.55, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["torikera"],
+    },
+    {
+      id: "kikabu",
+      kind: "hollow",
+      position: [-1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["sutego"],
+    },
+    {
+      id: "tamago",
+      kind: "pot",
+      position: [1.15, -1.2, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["putera"],
+    },
+  ],
+};
+
 export const SCENES: readonly SceneConfig[] = [
   OUCHI,
   SOTO,
   UMI,
   NOUJOU,
+  DOBUTSUEN,
+  KYORYU,
   NOHARA,
 ];
 

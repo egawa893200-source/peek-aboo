@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-09-06T05:27:54.001Z",
+  "generatedAt": "2026-09-06T05:47:12.263Z",
   "metric": "M1",
   "gate": "app-front-camera-only",
   "note": "参照画像に寄っているかを測っている。本物に見えるかは測っていない",
   "passLine": 0.7,
   "normalizedHeightPx": 256,
-  "passed": 16,
-  "total": 17,
+  "passed": 21,
+  "total": 25,
   "animals": [
     {
       "id": "ushi",
@@ -582,6 +582,278 @@
           "offset": [
             -5,
             -26
+          ]
+        }
+      }
+    },
+    {
+      "id": "raion",
+      "priority": 18,
+      "m1": 0.7031,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7031,
+          "missing": 0.0089,
+          "extra": 0.4097,
+          "areaRatio": 1.401,
+          "refAspect": 0.567,
+          "appAspect": 0.714,
+          "appView": "front",
+          "offset": [
+            0,
+            0
+          ]
+        },
+        "side": {
+          "iou": 0.7201,
+          "missing": 0.1387,
+          "extra": 0.1961,
+          "areaRatio": 1.057,
+          "refAspect": 0.628,
+          "appAspect": 0.762,
+          "appView": "side",
+          "offset": [
+            5,
+            -29
+          ]
+        }
+      }
+    },
+    {
+      "id": "zou",
+      "priority": 19,
+      "m1": 0.6785,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6785,
+          "missing": 0.2173,
+          "extra": 0.1536,
+          "areaRatio": 0.936,
+          "refAspect": 0.88,
+          "appAspect": 0.66,
+          "appView": "front",
+          "offset": [
+            -1,
+            -11
+          ]
+        },
+        "side": {
+          "iou": 0.4707,
+          "missing": 0.4642,
+          "extra": 0.1382,
+          "areaRatio": 0.674,
+          "refAspect": 0.983,
+          "appAspect": 0.721,
+          "appView": "side",
+          "offset": [
+            -21,
+            5
+          ]
+        }
+      }
+    },
+    {
+      "id": "kirin",
+      "priority": 20,
+      "m1": 0.6885,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6885,
+          "missing": 0.2206,
+          "extra": 0.132,
+          "areaRatio": 0.911,
+          "refAspect": 0.254,
+          "appAspect": 0.231,
+          "appView": "front",
+          "offset": [
+            0,
+            0
+          ]
+        },
+        "side": {
+          "iou": 0.3953,
+          "missing": 0.5217,
+          "extra": 0.2101,
+          "areaRatio": 0.688,
+          "refAspect": 0.503,
+          "appAspect": 0.35,
+          "appView": "side",
+          "offset": [
+            4,
+            13
+          ]
+        }
+      }
+    },
+    {
+      "id": "saru",
+      "priority": 21,
+      "m1": 0.7178,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7178,
+          "missing": 0.0734,
+          "extra": 0.2909,
+          "areaRatio": 1.217,
+          "refAspect": 0.661,
+          "appAspect": 0.771,
+          "appView": "front",
+          "offset": [
+            9,
+            2
+          ]
+        },
+        "side": {
+          "iou": 0.6828,
+          "missing": 0.1069,
+          "extra": 0.308,
+          "areaRatio": 1.201,
+          "refAspect": 0.652,
+          "appAspect": 0.533,
+          "appView": "side",
+          "offset": [
+            16,
+            -18
+          ]
+        }
+      }
+    },
+    {
+      "id": "tirano",
+      "priority": 22,
+      "m1": 0.7109,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7109,
+          "missing": 0.2303,
+          "extra": 0.0827,
+          "areaRatio": 0.852,
+          "refAspect": 0.627,
+          "appAspect": 0.557,
+          "appView": "front",
+          "offset": [
+            -12,
+            20
+          ]
+        },
+        "side": {
+          "iou": 0.644,
+          "missing": 0.2553,
+          "extra": 0.1564,
+          "areaRatio": 0.901,
+          "refAspect": 0.848,
+          "appAspect": 0.895,
+          "appView": "side",
+          "offset": [
+            -14,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "id": "torikera",
+      "priority": 23,
+      "m1": 0.7159,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7159,
+          "missing": 0.1893,
+          "extra": 0.1324,
+          "areaRatio": 0.943,
+          "refAspect": 0.724,
+          "appAspect": 0.824,
+          "appView": "front",
+          "offset": [
+            -5,
+            -4
+          ]
+        },
+        "side": {
+          "iou": 0.4396,
+          "missing": 0.5315,
+          "extra": 0.0658,
+          "areaRatio": 0.534,
+          "refAspect": 1.346,
+          "appAspect": 0.771,
+          "appView": "side",
+          "offset": [
+            -19,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "id": "sutego",
+      "priority": 24,
+      "m1": 0.7279,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7279,
+          "missing": 0.1165,
+          "extra": 0.2138,
+          "areaRatio": 1.097,
+          "refAspect": 0.662,
+          "appAspect": 0.671,
+          "appView": "front",
+          "offset": [
+            1,
+            11
+          ]
+        },
+        "side": {
+          "iou": 0.4908,
+          "missing": 0.4842,
+          "extra": 0.0508,
+          "areaRatio": 0.567,
+          "refAspect": 1.616,
+          "appAspect": 0.879,
+          "appView": "side",
+          "offset": [
+            0,
+            5
+          ]
+        }
+      }
+    },
+    {
+      "id": "putera",
+      "priority": 25,
+      "m1": 0.5226,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.5226,
+          "missing": 0.0503,
+          "extra": 0.8173,
+          "areaRatio": 1.767,
+          "refAspect": 0.878,
+          "appAspect": 1.074,
+          "appView": "front",
+          "offset": [
+            -4,
+            4
+          ]
+        },
+        "side": {
+          "iou": 0.605,
+          "missing": 0.0873,
+          "extra": 0.5085,
+          "areaRatio": 1.421,
+          "refAspect": 0.732,
+          "appAspect": 0.802,
+          "appView": "side",
+          "offset": [
+            -40,
+            6
           ]
         }
       }

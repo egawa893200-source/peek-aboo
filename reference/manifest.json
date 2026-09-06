@@ -165,9 +165,7 @@
       "views": {
         "front": "animals/raion/front.png",
         "side": "animals/raion/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "zou",
@@ -176,9 +174,7 @@
       "views": {
         "front": "animals/zou/front.png",
         "side": "animals/zou/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "kirin",
@@ -187,9 +183,7 @@
       "views": {
         "front": "animals/kirin/front.png",
         "side": "animals/kirin/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "saru",
@@ -198,9 +192,7 @@
       "views": {
         "front": "animals/saru/front.png",
         "side": "animals/saru/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "tirano",
@@ -209,9 +201,7 @@
       "views": {
         "front": "animals/tirano/front.png",
         "side": "animals/tirano/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "torikera",
@@ -220,9 +210,7 @@
       "views": {
         "front": "animals/torikera/front.png",
         "side": "animals/torikera/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "sutego",
@@ -231,9 +219,7 @@
       "views": {
         "front": "animals/sutego/front.png",
         "side": "animals/sutego/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     },
     {
       "id": "putera",
@@ -242,11 +228,8 @@
       "views": {
         "front": "animals/putera/front.png",
         "side": "animals/putera/side.png"
-      },
-      "pending": true,
-      "pendingNote": "アプリにまだこの動物が居ない。場面を決めてから data/animals.ts に足す"
+      }
     }
   ],
-  "_appViewNote": "appViewFor は「参照のこの向きは、アプリのどの向きと突き合わせるか」。くまのみは ProceduralAnimals が魚を横向きに作っている（正面から見た魚は魚に見えないため）ので、アプリの front カメラには魚の横顔が写る。参照の front（真正面）と突き合わせると別物を比べることになる。",
-  "_pendingNote": "pending: true の動物は、まだ src/data/animals.ts に存在しない。npm run shot と npm run match-score は飛ばす。"
+  "_appViewNote": "appViewFor は「参照のこの向きは、アプリのどの向きと突き合わせるか」。くまのみは ProceduralAnimals が魚を横向きに作っている（正面から見た魚は魚に見えないため）ので、アプリの front カメラには魚の横顔が写る。参照の front（真正面）と突き合わせると別物を比べることになる。"
 }
