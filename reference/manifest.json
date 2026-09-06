@@ -1,4 +1,149 @@
 {
-  "_note": "ここに書いた動物だけを対象にする。画像を reference/raw/ に置いてから id を足すこと。priority は出番の多さで、1 から順に着手する。",
-  "animals": []
+  "_note": "ここに書いた動物だけを対象にする（docs/match-gate.md）。priority の順に1体ずつ着手する。sideFacing は側面図がどちらを向いているかで、npm run ref-split が left のものを左右反転して right に揃える。**自動判定はしない。人間が16枚を見て決めた値。**",
+  "animals": [
+    {
+      "id": "ushi",
+      "priority": 1,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/ushi/front.png",
+        "side": "animals/ushi/side.png"
+      }
+    },
+    {
+      "id": "risu",
+      "priority": 2,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/risu/front.png",
+        "side": "animals/risu/side.png"
+      }
+    },
+    {
+      "id": "hitsuji",
+      "priority": 3,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/hitsuji/front.png",
+        "side": "animals/hitsuji/side.png"
+      }
+    },
+    {
+      "id": "tako",
+      "priority": 4,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/tako/front.png",
+        "side": "animals/tako/side.png"
+      }
+    },
+    {
+      "id": "neko",
+      "priority": 5,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/neko/front.png",
+        "side": "animals/neko/side.png"
+      }
+    },
+    {
+      "id": "inu",
+      "priority": 6,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/inu/front.png",
+        "side": "animals/inu/side.png"
+      }
+    },
+    {
+      "id": "usagi",
+      "priority": 7,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/usagi/front.png",
+        "side": "animals/usagi/side.png"
+      }
+    },
+    {
+      "id": "nezumi",
+      "priority": 8,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/nezumi/front.png",
+        "side": "animals/nezumi/side.png"
+      }
+    },
+    {
+      "id": "kotori",
+      "priority": 9,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/kotori/front.png",
+        "side": "animals/kotori/side.png"
+      }
+    },
+    {
+      "id": "kaeru",
+      "priority": 10,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/kaeru/front.png",
+        "side": "animals/kaeru/side.png"
+      }
+    },
+    {
+      "id": "harinezumi",
+      "priority": 11,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/harinezumi/front.png",
+        "side": "animals/harinezumi/side.png"
+      }
+    },
+    {
+      "id": "chocho",
+      "priority": 12,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/chocho/front.png",
+        "side": "animals/chocho/side.png"
+      }
+    },
+    {
+      "id": "kumanomi",
+      "priority": 13,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/kumanomi/front.png",
+        "side": "animals/kumanomi/side.png"
+      }
+    },
+    {
+      "id": "kani",
+      "priority": 14,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/kani/front.png",
+        "side": "animals/kani/side.png"
+      }
+    },
+    {
+      "id": "pengin",
+      "priority": 15,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/pengin/front.png",
+        "side": "animals/pengin/side.png"
+      }
+    },
+    {
+      "id": "buta",
+      "priority": 16,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/buta/front.png",
+        "side": "animals/buta/side.png"
+      }
+    }
+  ]
 }
