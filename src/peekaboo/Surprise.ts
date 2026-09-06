@@ -44,8 +44,13 @@ import { disposeObject3D } from './SpotShapes';
  */
 export const SURPRISE_CHANCE = 0.5;
 
-/** 画面の高さの何割を占めるか */
-const SCREEN_FRACTION = 0.66;
+/**
+ * 画面の高さの何割を占めるか。**人間が決めた**（2026-09-06 に 2/3 → 3/4）。
+ *
+ * 横に広い動物（かに・ちょうちょ）は、これより先に**幅**で頭打ちになる
+ * （画面幅の 0.92 まで）。その場合は高さがこの割合に届かない
+ */
+const SCREEN_FRACTION = 0.75;
 
 /** カメラからの距離。手前すぎると歪む。奥すぎると隠れ場所とぶつかる */
 const DISTANCE = 3.0;
