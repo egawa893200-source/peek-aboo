@@ -179,10 +179,17 @@ export function capture(animalId: string, view: PoseView): CaptureResult {
   const cx = (bounds.min.x + bounds.max.x) / 2;
   const cy = (bounds.min.y + bounds.max.y) / 2;
 
-  // **高さを基準にする。** 幅を基準にすると、うさぎの耳やきりんの首のように
-  // 縦に長い動物だけ枠から出る
-  const halfH = bh / 2 / FILL;
-  const halfW = halfH; // 正方形
+  // **縦と横の広いほうに合わせる。**
+  //
+  // 高さだけで合わせていたら、**横に広い動物が枠で切れた**。
+  // ちょうちょ・かえる・はりねずみ・ひつじの4体が、どれも縦横比 1.219
+  // （＝ 512 ÷ (512×0.82)）という同じ値になっていて気づいた。
+  // 枠の縁で切られると、いくら形を直しても縦横比がその値から動かない。
+  // 高さの画面占有は動物ごとに変わるが、M1 は外接矩形の高さで
+  // 正規化し直すので影響しない。
+  const half = Math.max(bh, bw) / 2 / FILL;
+  const halfH = half;
+  const halfW = half; // 正方形
   camera.left = cx - halfW;
   camera.right = cx + halfW;
   camera.top = cy + halfH;
