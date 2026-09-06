@@ -398,18 +398,24 @@ function buildOctopus(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: n
   dome.position.y = headY;
   root.add(dome);
 
-  // 足。8本は多すぎて潰れるので6本。手前に広げる
+  // 足。8本は多すぎて潰れるので6本。手前に広げる。
+  //
+  // **横への広げ方は参照画像から決めた**（M1 / 2026-09-06）。
+  // 0.7 / 0.95 だと正面の縦横比が 0.71 で、参照の 1.00 に対して縦長すぎた。
+  // 1.3 / 1.8 で 1.08 になり、IoU が 0.659 → 0.687 に上がった。
+  // **さらに広げても上がらない**（1.55/2.1 で縦横比 1.24・IoU 0.678）。
+  // 残りは腕の太さと曲がり方の違いで、比率では詰められない
   const legs = 6;
   for (let i = 0; i < legs; i++) {
     const a = -0.9 + (1.8 * i) / (legs - 1);
     const leg = cone(p.skin, w * 0.1, h * 0.5, 6);
-    leg.position.set(Math.sin(a) * headR * 0.7, h * 0.24, Math.cos(a) * d * 0.3);
+    leg.position.set(Math.sin(a) * headR * 1.3, h * 0.24, Math.cos(a) * d * 0.3);
     leg.rotation.set(0.25, 0, -Math.sin(a) * 0.5);
     // 先を細く、根元を太く見せる
     leg.scale.set(1, 1, 1);
     root.add(leg);
     const tip = ball(p.belly, w * 0.055);
-    tip.position.set(Math.sin(a) * headR * 0.95, h * 0.045, Math.cos(a) * d * 0.34);
+    tip.position.set(Math.sin(a) * headR * 1.8, h * 0.045, Math.cos(a) * d * 0.34);
     root.add(tip);
   }
 

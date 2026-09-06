@@ -57,7 +57,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     snout: 'none',
     tail: 'thin',
     bodyHeight: 0.92,
-    bodyWidth: 0.66,
+    bodyWidth: 0.60,
   },
   {
     id: 'inu',
@@ -74,7 +74,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     snout: 'muzzle',
     tail: 'thin',
     bodyHeight: 0.96,
-    bodyWidth: 0.8,
+    bodyWidth: 0.60,
   },
   {
     id: 'nezumi',
@@ -107,8 +107,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
     headTop: 'none',
     snout: 'beak',
     tail: 'feather',
-    bodyHeight: 0.62,
-    bodyWidth: 0.6,
+    bodyHeight: 0.92,
+    bodyWidth: 0.42,
   },
 
   /* --- のはら（モードB / §4-5） ------------------------------------------- */
@@ -130,7 +130,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     snout: 'none',
     tail: 'puff',
     bodyHeight: 1.02,
-    bodyWidth: 0.62,
+    bodyWidth: 0.50,
   },
 
   /* --- そと（モードA） ---------------------------------------------------- */
@@ -206,7 +206,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     bodyHeight: 0.66,
     // 羽を広げると体幅の 1.64倍まで広がる。うえきばちの開口 1.15 に
     // 収めるため 0.66 まで絞ってある（§4-2 の 0.86倍の条件）
-    bodyWidth: 0.66,
+    bodyWidth: 0.38,
   },
 
   /* --- うみ（モードA） ---------------------------------------------------- */
@@ -243,7 +243,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     snout: 'none',
     tail: 'none',
     bodyHeight: 0.86,
-    bodyWidth: 0.7,
+    bodyWidth: 0.70,
   },
   {
     id: 'kani',
@@ -259,7 +259,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     headTop: 'none',
     snout: 'none',
     tail: 'none',
-    bodyHeight: 0.6,
+    bodyHeight: 0.60,
     // はさみと脚で体幅の 1.8倍まで広がる。いわの開口 1.21 に収めるため絞る
     bodyWidth: 0.68,
   },
@@ -298,7 +298,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     tail: 'thin',
     coat: 'spotted',
     bodyHeight: 0.94,
-    bodyWidth: 0.86,
+    bodyWidth: 0.58,
   },
   {
     id: 'buta',
@@ -315,7 +315,7 @@ export const ANIMALS: readonly AnimalConfig[] = [
     snout: 'flat',
     tail: 'curl',
     bodyHeight: 0.8,
-    bodyWidth: 0.82,
+    bodyWidth: 0.56,
   },
   {
     id: 'hitsuji',
