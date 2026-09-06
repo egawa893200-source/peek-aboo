@@ -271,12 +271,19 @@ async function main() {
         });
       }
 
-      // **合否は正面だけで見る**（2026-09-06、人間が決めた。docs/match-gate.md）。
+      // **合否は「アプリの正面カメラが写す絵」で見る**
+      // （2026-09-06、人間が決めた。docs/match-gate.md）。
+      //
       // 参照の側面図は4本足で立った獣で、アプリの動物は上半身を起こした形。
       // そのうえ**アプリのカメラは動物を正面からしか見せない**ので、
-      // 側面は画面に出ない投影を測っていることになる。
-      // 側面は記録するだけで合否に数えない
-      const score = perView.front?.iou ?? 0;
+      // それ以外の向きは画面に出ない投影を測っていることになる。
+      //
+      // **「参照の front」ではなく「アプリの front」で選ぶこと。**
+      // くまのみは魚を横向きに作ってあるので、アプリの正面カメラに写るのは
+      // 魚の横顔＝**参照の側面図**のほう。参照の front で合否を採ると、
+      // 子どもが一度も見ない向き（真正面の魚）で合否を出すことになる。
+      const gateEntry = Object.values(perView).find((v) => v.appView === 'front');
+      const score = gateEntry?.iou ?? 0;
       results.push({
         id: a.id,
         priority: a.priority,
@@ -304,7 +311,7 @@ async function main() {
     const payload = {
       generatedAt: new Date().toISOString(),
       metric: 'M1',
-      gate: 'front-only',
+      gate: 'app-front-camera-only',
       note: '参照画像に寄っているかを測っている。本物に見えるかは測っていない',
       passLine: M1_PASS,
       normalizedHeightPx: NORM_H,
@@ -325,8 +332,9 @@ async function main() {
     console.log(`M1 シルエット一致（合格ライン ${M1_PASS}）`);
     console.log('id           正面   足りない はみ出し 縦横比(参照→アプリ)  (側面=参考)');
     for (const r of results) {
-      const f = r.views.front;
-      const s = r.views.side;
+      // 表示も「アプリの正面カメラ」を左に出す
+      const f = Object.values(r.views).find((v) => v.appView === 'front');
+      const s = Object.values(r.views).find((v) => v.appView !== 'front');
       const worst = (f?.iou ?? 1) <= (s?.iou ?? 1) ? f : s;
       void worst;
       console.log(

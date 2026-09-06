@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-06T04:34:59.808Z",
+  "generatedAt": "2026-09-06T04:41:41.382Z",
   "metric": "M1",
-  "gate": "front-only",
+  "gate": "app-front-camera-only",
   "note": "参照画像に寄っているかを測っている。本物に見えるかは測っていない",
   "passLine": 0.7,
   "normalizedHeightPx": 256,
@@ -419,7 +419,7 @@
     {
       "id": "kumanomi",
       "priority": 13,
-      "m1": 0.6492,
+      "m1": 0.5501,
       "pass": false,
       "views": {
         "front": {
