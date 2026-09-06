@@ -8,24 +8,28 @@
 ChatGPT が出した**1枚に正面図と側面図が横並びになった画像**を、
 そのまま次の名前で置く。
 
+**拡張子に注意。** 受け取った16枚は `.png` という名前だったが、中身は
+すべて JPEG（`ff d8 ff`）だった。名前が中身と食い違っていると、後から
+「PNG なのでアルファがあるはず」と読んで静かに壊れるので、`.jpg` に直してある。
+
 ```
-reference/raw/01-ushi.png
-reference/raw/02-risu.png
-reference/raw/03-hitsuji.png
-reference/raw/04-tako.png
-reference/raw/05-neko.png
-reference/raw/06-inu.png
-reference/raw/07-usagi.png
-reference/raw/08-nezumi.png
-reference/raw/09-kotori.png
-reference/raw/10-kaeru.png
-reference/raw/11-harinezumi.png
-reference/raw/12-chocho.png
-reference/raw/13-kumanomi.png
-reference/raw/14-kani.png
-reference/raw/15-pengin.png
-reference/raw/16-buta.png
-reference/raw/17-niwatori.png
+reference/raw/01-ushi.jpg
+reference/raw/02-risu.jpg
+reference/raw/03-hitsuji.jpg
+reference/raw/04-tako.jpg
+reference/raw/05-neko.jpg
+reference/raw/06-inu.jpg
+reference/raw/07-usagi.jpg
+reference/raw/08-nezumi.jpg
+reference/raw/09-kotori.jpg
+reference/raw/10-kaeru.jpg
+reference/raw/11-harinezumi.jpg
+reference/raw/12-chocho.jpg
+reference/raw/13-kumanomi.jpg
+reference/raw/14-kani.jpg
+reference/raw/15-pengin.jpg
+reference/raw/16-buta.jpg
+reference/raw/17-niwatori.jpg
 ```
 
 - 番号は生成プロンプトの番号、名前は `src/data/animals.ts` の `id`
