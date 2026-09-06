@@ -25,7 +25,12 @@ import { describe, expect, it } from 'vitest';
 import { ANIMALS } from '../../src/data/animals';
 import { CUTOUT_SIZES } from '../../src/data/cutoutSizes';
 import type { SceneConfig } from '../../src/types';
-import { Surprise, SURPRISE_CHANCE, SURPRISE_TOTAL_SEC } from '../../src/peekaboo/Surprise';
+import {
+  Surprise,
+  SURPRISE_CHANCE,
+  SURPRISE_TOTAL_SEC,
+  type SurpriseDirection,
+} from '../../src/peekaboo/Surprise';
 
 /** サプライズの最短間隔を必ず跨ぐ長さ。**間隔の制限ではなく抽選を測る**ため */
 const MIN_GAP_FOR_TEST = 3.0;
@@ -1442,6 +1447,72 @@ describe('§6-3 サプライズ「ばあっ！」', () => {
       const mat = mesh.material as THREE.MeshBasicMaterial;
       expect(mat.color.getHex()).toBe(0xffffff);
     }
+  });
+
+  it('4方向すべてから出る（人間が決めた。2026-09-06）', () => {
+    const s = surpriseRig();
+    const seen = new Map<SurpriseDirection, number>();
+    let prev: SurpriseDirection | null = null;
+    for (let i = 0; i < 400; i++) {
+      s.update(MIN_GAP_FOR_TEST, camera());
+      if (!s.maybeTrigger('neko')) continue;
+      const d = s.getDirection();
+      // **同じ向きを2回続けない。** 続くと4方向にした意味が無くなる
+      expect(d === prev, `${i} 回目で ${d} が2連続`).toBe(false);
+      prev = d;
+      seen.set(d, (seen.get(d) ?? 0) + 1);
+    }
+    for (const d of ['bottom', 'top', 'left', 'right'] as const) {
+      expect(seen.get(d) ?? 0, `${d} が一度も出ていない`).toBeGreaterThan(5);
+    }
+  });
+
+  it('上から出るときだけ上下を反転する（覗き込んで見せるため）', () => {
+    const s = surpriseRig();
+    const cam = camera();
+    let checked = 0;
+    for (let i = 0; i < 400 && checked < 8; i++) {
+      s.update(MIN_GAP_FOR_TEST, cam);
+      if (!s.maybeTrigger('neko')) continue;
+      s.update(DT, cam);
+      const mesh = s.group.children[0] as THREE.Mesh;
+      const flipped = mesh.scale.y < 0;
+      expect(flipped, `${s.getDirection()} の反転が違う`).toBe(s.getDirection() === 'top');
+      checked++;
+      // 走りきらせてから次へ
+      for (let t = 0; t < SURPRISE_TOTAL_SEC + 0.1; t += DT) s.update(DT, cam);
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('どの向きでも、出きったときに画面の中に入っている', () => {
+    // 画面の外に置いたまま「出た」ことになっていないかを見る。
+    // 画面はカメラから DISTANCE 離れたところの矩形で、
+    // 動物の矩形がそこと十分に重なっていること
+    const s = surpriseRig();
+    const cam = camera();
+    const viewH = 2 * 3.0 * Math.tan((cam.fov * Math.PI) / 360);
+    const viewW = viewH * cam.aspect;
+    let checked = 0;
+    for (let i = 0; i < 400 && checked < 8; i++) {
+      s.update(MIN_GAP_FOR_TEST, cam);
+      if (!s.maybeTrigger('neko')) continue;
+      // 上がりきるまで進める
+      for (let t = 0; t < 0.4; t += DT) s.update(DT, cam);
+      const mesh = s.group.children[0] as THREE.Mesh;
+      const geo = mesh.geometry as THREE.PlaneGeometry;
+      const w = geo.parameters.width;
+      const h = geo.parameters.height;
+      const overlapX =
+        Math.min(mesh.position.x + w / 2, viewW / 2) - Math.max(mesh.position.x - w / 2, -viewW / 2);
+      const overlapY =
+        Math.min(mesh.position.y + h / 2, viewH / 2) - Math.max(mesh.position.y - h / 2, -viewH / 2);
+      expect(overlapX / w, `${s.getDirection()}: 横が画面に入っていない`).toBeGreaterThan(0.98);
+      expect(overlapY / h, `${s.getDirection()}: 縦が画面に入っていない`).toBeGreaterThan(0.98);
+      checked++;
+      for (let t = 0; t < SURPRISE_TOTAL_SEC + 0.1; t += DT) s.update(DT, cam);
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('走りきったら止まり、捨てたら何も残らない', () => {

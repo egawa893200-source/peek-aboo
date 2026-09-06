@@ -221,10 +221,16 @@ export class App {
     return {
       getTapCount: (): number => this.taps,
       /** §6-3 のサプライズ。抽選した回数と、実際に出した回数 */
-      getSurprise: (): { rolled: number; fired: number; running: boolean } => ({
+      getSurprise: (): {
+        rolled: number;
+        fired: number;
+        running: boolean;
+        direction: string;
+      } => ({
         rolled: this.surprise.getRolledCount(),
         fired: this.surprise.getFiredCount(),
         running: this.surprise.isRunning(),
+        direction: this.surprise.getDirection(),
       }),
       getFrameCount: (): number => this.loop.frameCount,
       /**

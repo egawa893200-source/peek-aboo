@@ -52,6 +52,12 @@ export const SURPRISE_CHANCE = 0.5;
  */
 const SCREEN_FRACTION = 0.75;
 
+/**
+ * 左右から出るときの、高さの下限（画面の高さに対する割合）。
+ * かに（縦横比 1.61）を幅の 3/4 で出すと縦が 23% しかなく、迫力が出なかった
+ */
+const SIDE_MIN_HEIGHT = 0.5;
+
 /** カメラからの距離。手前すぎると歪む。奥すぎると隠れ場所とぶつかる */
 const DISTANCE = 3.0;
 
@@ -85,6 +91,16 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/**
+ * どこから出てくるか（2026-09-06 に人間が決めた）。
+ *
+ * **`top` だけ上下を反転させる。** 反転しないと、上から降りてきた動物が
+ * 逆立ちしているように見える。反転すると「画面の外から覗き込んでいる」に見える。
+ */
+export type SurpriseDirection = 'bottom' | 'top' | 'left' | 'right';
+
+const DIRECTIONS: readonly SurpriseDirection[] = ['bottom', 'top', 'left', 'right'];
+
 export type SurpriseEvent = (animalId: string) => void;
 
 export interface SurpriseOptions {
@@ -109,6 +125,9 @@ export class Surprise {
   /** 走っている最中の経過秒。null なら止まっている */
   private t: number | null = null;
   private animalId = '';
+  private direction: SurpriseDirection = 'bottom';
+  /** 直前の向き。**同じ向きを2回続けない**（4方向にした意味が無くなる） */
+  private lastDirection: SurpriseDirection | null = null;
   private voiced = false;
   private clock = 0;
   private lastEndAt = -Infinity;
@@ -152,11 +171,20 @@ export class Surprise {
     if (this.rng() >= this.chance) return false;
 
     this.animalId = animalId;
+    this.direction = this.pickDirection();
     this.t = 0;
     this.voiced = false;
     this.fired++;
     this.justFired = true;
     return true;
+  }
+
+  /** 4方向から1つ選ぶ。**直前と同じ向きは選ばない** */
+  private pickDirection(): SurpriseDirection {
+    const choices = DIRECTIONS.filter((d) => d !== this.lastDirection);
+    const picked = choices[Math.min(choices.length - 1, Math.floor(this.rng() * choices.length))];
+    this.lastDirection = picked;
+    return picked;
   }
 
   update(dt: number, camera: THREE.PerspectiveCamera): void {
@@ -183,13 +211,14 @@ export class Surprise {
     }
 
     const lift = this.liftAt(t);
-    const h = this.mesh.userData.planeHeight as number;
-    const viewBottom = -(this.mesh.userData.viewHeight as number) / 2;
-    // 隠れているとき: 画面の下に完全に外れている
-    const hiddenY = viewBottom - h / 2 - 0.02;
-    // 出きったとき: 下辺が画面の下辺にそろう
-    const outY = viewBottom + h / 2;
-    this.mesh.position.y = hiddenY + (outY - hiddenY) * lift;
+    const p = this.mesh.userData.place as {
+      hiddenX: number;
+      hiddenY: number;
+      outX: number;
+      outY: number;
+    };
+    this.mesh.position.x = p.hiddenX + (p.outX - p.hiddenX) * lift;
+    this.mesh.position.y = p.hiddenY + (p.outY - p.hiddenY) * lift;
     this.group.visible = true;
 
     if (t >= SURPRISE_TOTAL_SEC) {
@@ -223,12 +252,39 @@ export class Surprise {
 
     const image = texture.image as { width?: number; height?: number } | null;
     const aspect = (image?.width ?? 1) / (image?.height ?? 1);
-    let planeHeight = viewHeight * SCREEN_FRACTION;
-    let planeWidth = planeHeight * aspect;
-    // 横に広い動物（かに・ちょうちょ）が画面からはみ出さないようにする
-    if (planeWidth > viewWidth * 0.92) {
-      planeWidth = viewWidth * 0.92;
+
+    // **どちらの軸で 3/4 にするかは、出てくる向きで変える。**
+    //
+    // 上下は「高さの 3/4」、左右は「幅の 3/4」。
+    // 縦持ちの画面（412×839）で左右も高さ基準にすると、縦長の動物は
+    // 幅いっぱいまで広がって画面の中央に居座り、**下から出たときと
+    // 見分けがつかなくなった**（実際にそうなった）。
+    // 幅基準なら横に 1/4 の余白が残るので、「横から覗き込んでいる」に見える。
+    const vertical = this.direction === 'bottom' || this.direction === 'top';
+    let planeHeight: number;
+    let planeWidth: number;
+    if (vertical) {
+      planeHeight = viewHeight * SCREEN_FRACTION;
+      planeWidth = planeHeight * aspect;
+      // 横に広い動物（かに・ちょうちょ）が画面から切れないようにする
+      if (planeWidth > viewWidth * 0.92) {
+        planeWidth = viewWidth * 0.92;
+        planeHeight = planeWidth / aspect;
+      }
+    } else {
+      planeWidth = viewWidth * SCREEN_FRACTION;
       planeHeight = planeWidth / aspect;
+      // **横に広い動物には下限が要る。** かに（縦横比 1.61）を幅の 3/4 で
+      // 出すと、縦が画面の 23% しかなく、迫力が出なかった（実測）
+      if (planeHeight < viewHeight * SIDE_MIN_HEIGHT) {
+        planeHeight = viewHeight * SIDE_MIN_HEIGHT;
+        planeWidth = planeHeight * aspect;
+      }
+      // 縦に長い動物（きりん・うさぎ）が画面から切れないようにする
+      if (planeHeight > viewHeight * 0.92) {
+        planeHeight = viewHeight * 0.92;
+        planeWidth = planeHeight * aspect;
+      }
     }
 
     this.material = new THREE.MeshBasicMaterial({
@@ -241,8 +297,43 @@ export class Surprise {
     });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(planeWidth, planeHeight), this.material);
     this.mesh.position.z = -DISTANCE;
-    this.mesh.userData.planeHeight = planeHeight;
-    this.mesh.userData.viewHeight = viewHeight;
+
+    // **上から出るときだけ上下を反転させる。**
+    // 反転しないと逆立ちして見える。反転すると「画面の外から覗き込んでいる」になる。
+    // 左右は反転しない。参照画像は正面向きなので、鏡にしても見た目が変わらない
+    this.mesh.scale.set(1, this.direction === 'top' ? -1 : 1, 1);
+
+    // 画面の外 → 画面の縁にそろう、の2点。**向きごとに軸が変わる**
+    const halfW = viewWidth / 2;
+    const halfH = viewHeight / 2;
+    const gap = 0.02;
+    // 左右から出るときも、足元は画面の下にそろえる（宙に浮かせない）
+    const groundedY = -halfH + planeHeight / 2;
+    const place = { hiddenX: 0, hiddenY: 0, outX: 0, outY: 0 };
+    switch (this.direction) {
+      case 'top':
+        place.outY = halfH - planeHeight / 2;
+        place.hiddenY = halfH + planeHeight / 2 + gap;
+        break;
+      case 'left':
+        place.outX = -halfW + planeWidth / 2;
+        place.hiddenX = -halfW - planeWidth / 2 - gap;
+        place.outY = groundedY;
+        place.hiddenY = groundedY;
+        break;
+      case 'right':
+        place.outX = halfW - planeWidth / 2;
+        place.hiddenX = halfW + planeWidth / 2 + gap;
+        place.outY = groundedY;
+        place.hiddenY = groundedY;
+        break;
+      default:
+        place.outY = groundedY;
+        place.hiddenY = -halfH - planeHeight / 2 - gap;
+        break;
+    }
+    this.mesh.userData.place = place;
+
     // いちばん手前。隠れ場所より前に出す
     this.mesh.renderOrder = 10;
     this.group.add(this.mesh);
@@ -259,6 +350,11 @@ export class Surprise {
 
   isRunning(): boolean {
     return this.t !== null;
+  }
+
+  /** いま出ている（または最後に出た）向き。E2E とテストが見る */
+  getDirection(): SurpriseDirection {
+    return this.direction;
   }
 
   getFiredCount(): number {
