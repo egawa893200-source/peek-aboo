@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ばあ！ — 参照ポーズ撮影</title>
+    <!--
+      **アプリ本体ではない。** `docs/match-gate.md` §3-1 の撮影台。
+      `vite build` の入口は index.html だけなので、これは dist に入らない
+      （＝ Netlify にも公開されない）。`npm run shot` が dev サーバ経由で開く。
+    -->
+  </head>
+  <body>
+    <script type="module" src="/src/capture/pose.ts"></script>
+  </body>
+</html>

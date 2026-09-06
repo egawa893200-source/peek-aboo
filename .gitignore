@@ -9,3 +9,6 @@ dist-ssr/
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# 撮影した PNG は npm run shot で再生成できる。記録は index.json だけ残す
+/capture/pose/*.png
