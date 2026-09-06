@@ -577,10 +577,21 @@ test.describe('§4-5 移動モード', () => {
       }
 
       // **移動中ずっと、4箇所すべてを毎フレーム連打する**
+      //
+      // **待つ長さは壁時計で決めないこと**（§10-2 / CLAUDE.md）。
+      // ここは 5000ms の壁時計で待っていたが、GPU の無い環境では
+      // 13fps しか出ず、`Loop` が1フレームに最大3ステップしか進めないため
+      // 5秒待っても更新時計は 3.0秒ぶんしか進まない。1周（4.80秒）に
+      // 届くかどうかが**その日の速さ次第**になり、同じコードが緑にも赤にもなった。
+      // 更新時計で 6.0秒ぶん待つ。壁時計は「固まったときに止める」ためだけに使う
       const spots = api.getSpots();
       let taps = 0;
-      const t1 = performance.now();
-      while (performance.now() - t1 < 5000) {
+      const sim0 = api.getSimulatedSeconds();
+      const guard = performance.now();
+      while (
+        api.getSimulatedSeconds() - sim0 < 6.0 &&
+        performance.now() - guard < 60_000
+      ) {
         for (const s of spots) {
           api.tap(s.screenX, s.screenY);
           taps++;
