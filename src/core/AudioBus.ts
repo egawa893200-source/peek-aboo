@@ -74,7 +74,7 @@ const STORAGE_KEY = 'baa.audio';
  * 初期バンドルが声の本数ぶん膨らみ、起動時間を押し戻す
  * （みずのなかで 3本足したら 847KB → 1,023KB になった）。
  */
-export type VoiceClip = 'baa';
+export type VoiceClip = 'baa' | 'kocchi';
 
 /**
  * 素材の要らない単発音（不変条件7）。すべて WebAudio で合成する。
@@ -97,6 +97,14 @@ async function loadVoiceBase64(name: VoiceClip): Promise<string> {
   switch (name) {
     case 'baa':
       return BAA_WAV_BASE64;
+    case 'kocchi': {
+      // **動的 import にすること**（CLAUDE.md）。静的に足したら
+      // 初期バンドルが 847KB → 1,023KB になった実測がある。
+      // このファイルは文字列定数1つしか持たないので、分割された
+      // チャンクもその文字列ぶんしかない
+      const mod = await import('../audio/kocchiClip');
+      return mod.KOCCHI_WAV_BASE64;
+    }
   }
 }
 
@@ -131,7 +139,7 @@ export class AudioBus {
    * いま押した動物の「ばあっ！」が黙って捨てられる。
    * 声の種類が違えば言葉として潰れないので、別々に数える
    */
-  private readonly lastSpeak: Record<VoiceClip, number> = { baa: 0 };
+  private readonly lastSpeak: Record<VoiceClip, number> = { baa: 0, kocchi: 0 };
 
   /** クリップを鳴らし終える AudioContext 時刻。重ねて再生しないため */
   private voiceBusyUntil = 0;
@@ -145,7 +153,7 @@ export class AudioBus {
    * 効果音は同じ経路で確実に鳴っているので、声も音声ファイルにして
    * 同じ経路（WebAudio）で鳴らす。
    */
-  private readonly voiceBuffers: Record<VoiceClip, AudioBuffer | null> = { baa: null };
+  private readonly voiceBuffers: Record<VoiceClip, AudioBuffer | null> = { baa: null, kocchi: null };
 
   /** 声の準備状況。?debug=1 に出して実機で切り分けられるようにする */
   private voiceState: 'yet' | 'ok' | 'ng' = 'yet';

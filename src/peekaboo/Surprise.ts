@@ -53,10 +53,24 @@ export const SURPRISE_CHANCE = 0.5;
 const SCREEN_FRACTION = 0.75;
 
 /**
+ * 左右のときだけ掛ける倍率（2026-09-06 に人間が決めた）。
+ * 実機で「左右からの絵が小さい」と言われた。上下はそのまま
+ */
+const SIDE_SCALE = 1.5;
+
+/**
  * 左右から出るときの、高さの下限（画面の高さに対する割合）。
  * かに（縦横比 1.61）を幅の 3/4 で出すと縦が 23% しかなく、迫力が出なかった
  */
-const SIDE_MIN_HEIGHT = 0.5;
+const SIDE_MIN_HEIGHT = 0.5 * SIDE_SCALE;
+
+/**
+ * 左右のとき、画面の幅の何倍まで許すか。
+ * **1 を超えてよい。** 横から入ってくる演出なので、向こう側が画面から
+ * はみ出しても「大きいものが来た」に見える。ただし無制限にすると
+ * 顔まで画面の外へ出る
+ */
+const SIDE_MAX_WIDTH = 1.9;
 
 /** カメラからの距離。手前すぎると歪む。奥すぎると隠れ場所とぶつかる */
 const DISTANCE = 3.0;
@@ -272,7 +286,7 @@ export class Surprise {
         planeHeight = planeWidth / aspect;
       }
     } else {
-      planeWidth = viewWidth * SCREEN_FRACTION;
+      planeWidth = viewWidth * SCREEN_FRACTION * SIDE_SCALE;
       planeHeight = planeWidth / aspect;
       // **横に広い動物には下限が要る。** かに（縦横比 1.61）を幅の 3/4 で
       // 出すと、縦が画面の 23% しかなく、迫力が出なかった（実測）
@@ -284,6 +298,11 @@ export class Surprise {
       if (planeHeight > viewHeight * 0.92) {
         planeHeight = viewHeight * 0.92;
         planeWidth = planeHeight * aspect;
+      }
+      // 横に広い動物が、向こう側だけでなく顔まで画面の外へ出ないようにする
+      if (planeWidth > viewWidth * SIDE_MAX_WIDTH) {
+        planeWidth = viewWidth * SIDE_MAX_WIDTH;
+        planeHeight = planeWidth / aspect;
       }
     }
 

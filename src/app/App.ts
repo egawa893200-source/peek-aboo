@@ -161,6 +161,10 @@ export class App {
         if (spot.config.kind === 'bush') this.audio.playOneShot('rustle');
       });
 
+      // §4-6。正解の場所が揺れはじめたら「こっちこっち〜」（2026-09-06）。
+      // **揺れと同時に鳴らすこと。** ずれると、どこが揺れたのか結び付かない
+      next.empty.onHint(() => this.audio.playVoice('kocchi'));
+
       // §4-6。**落胆の音にしない。** とぼけた「あれ？」。
       // ブザー・×印・暗転は使わない（外れを「失敗」にしない）。
       // ここで `speak('あれ？','baa')` と書くと、**録音してある「ばあっ！」が鳴る**

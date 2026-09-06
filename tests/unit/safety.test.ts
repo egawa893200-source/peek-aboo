@@ -1369,6 +1369,45 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
   });
 });
 
+describe('§4-6 「こっちこっち〜」（2026-09-06 に人間が決めた）', () => {
+  it('正解の場所が揺れはじめたのと同じ瞬間に、1回だけ知らせる', () => {
+    const { spots, empty, answer, advance } = chaseRig();
+    advance(0.5);
+
+    const calls: { spot: string; answer: string | null }[] = [];
+    empty.onHint((spot, ans) => calls.push({ spot: spot.config.id, answer: ans?.config.id ?? null }));
+
+    const correct = answer();
+    const wrong = spots.runtimes.find((s) => s !== correct)!;
+
+    spots.tap(wrong);
+    // 揺れは §4-6 の 0.50s。**その手前では鳴らない**
+    advance(0.4);
+    expect(calls.length, '0.4秒の時点で鳴っている').toBe(0);
+
+    advance(0.2);
+    expect(calls.length, '0.6秒までに1回鳴っていない').toBe(1);
+    expect(calls[0].answer).toBe(correct.config.id);
+
+    // ひと通り走りきっても、増えない
+    advance(1.0);
+    expect(calls.length).toBe(1);
+  });
+
+  it('押した場所そのものが正解だったときは鳴らない', () => {
+    const { spots, empty, answer, advance } = chaseRig();
+    advance(0.5);
+    const calls: string[] = [];
+    empty.onHint((spot) => calls.push(spot.config.id));
+
+    // 正解の場所は空ではないので、そもそも §4-6 は起きない。
+    // **起きても鳴らない**ことまで見る（揺らす相手が自分自身になるため）
+    spots.tap(answer());
+    advance(1.5);
+    expect(calls.length).toBe(0);
+  });
+});
+
 describe('§6-3 サプライズ「ばあっ！」', () => {
   /** テストから抽選だけを回す。カメラは要らない（`update` を呼ばなければ作らない） */
   function surpriseRig(seed = 20260906, chance = SURPRISE_CHANCE) {
@@ -1485,10 +1524,14 @@ describe('§6-3 サプライズ「ばあっ！」', () => {
     expect(checked).toBeGreaterThan(0);
   });
 
-  it('どの向きでも、出きったときに画面の中に入っている', () => {
+  it('どの向きでも、出きったときに入ってきた側の縁にそろっている', () => {
     // 画面の外に置いたまま「出た」ことになっていないかを見る。
-    // 画面はカメラから DISTANCE 離れたところの矩形で、
-    // 動物の矩形がそこと十分に重なっていること
+    //
+    // **左右は、向こう側が画面からはみ出してよい**（2026-09-06、人間が決めた）。
+    // 「左右の絵が小さい」と言われて 1.5倍にした結果、横に広い動物は
+    // 画面幅の 1.9倍まで許している。はみ出しても「大きいものが横から来た」
+    // に見えるが、**入ってくる側の縁にそろっていないと**、ただ画面の外に
+    // 置きっぱなしなのと区別がつかない。そこを見る
     const s = surpriseRig();
     const cam = camera();
     const viewH = 2 * 3.0 * Math.tan((cam.fov * Math.PI) / 360);
@@ -1507,8 +1550,22 @@ describe('§6-3 サプライズ「ばあっ！」', () => {
         Math.min(mesh.position.x + w / 2, viewW / 2) - Math.max(mesh.position.x - w / 2, -viewW / 2);
       const overlapY =
         Math.min(mesh.position.y + h / 2, viewH / 2) - Math.max(mesh.position.y - h / 2, -viewH / 2);
-      expect(overlapX / w, `${s.getDirection()}: 横が画面に入っていない`).toBeGreaterThan(0.98);
-      expect(overlapY / h, `${s.getDirection()}: 縦が画面に入っていない`).toBeGreaterThan(0.98);
+      const dir = s.getDirection();
+      const vertical = dir === 'bottom' || dir === 'top';
+      // 入ってくる側の縁に、動物の縁がそろっていること
+      const near =
+        dir === 'left'
+          ? mesh.position.x - w / 2 + viewW / 2
+          : dir === 'right'
+            ? viewW / 2 - (mesh.position.x + w / 2)
+            : dir === 'bottom'
+              ? mesh.position.y - h / 2 + viewH / 2
+              : viewH / 2 - (mesh.position.y + h / 2);
+      expect(Math.abs(near), `${dir}: 入ってきた側の縁にそろっていない`).toBeLessThan(0.02);
+
+      // 画面に入っている割合。**上下は全部、左右は横だけ緩める**
+      expect(overlapY / h, `${dir}: 縦が画面に入っていない`).toBeGreaterThan(0.98);
+      expect(overlapX / w, `${dir}: 横が画面に入っていない`).toBeGreaterThan(vertical ? 0.98 : 0.5);
       checked++;
       for (let t = 0; t < SURPRISE_TOTAL_SEC + 0.1; t += DT) s.update(DT, cam);
     }
