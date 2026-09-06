@@ -212,8 +212,16 @@ async function buildSheetInPage({ items, cell, cols }) {
 }
 
 async function main() {
+  // `--only <id>` は1体だけ採点して表示する。**json も一覧も書き換えない。**
+  // 直しながら数値を見るための入口で、正式な記録は常に全体の実行から採る
+  const onlyIdx = process.argv.indexOf('--only');
+  const only = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
+
   const manifest = JSON.parse(await readFile(resolve(ROOT, 'reference/manifest.json'), 'utf8'));
-  const animals = (manifest.animals ?? []).slice().sort((a, b) => a.priority - b.priority);
+  const animals = (manifest.animals ?? [])
+    .filter((a) => !only || a.id === only)
+    .slice()
+    .sort((a, b) => a.priority - b.priority);
   if (animals.length === 0) {
     console.error('reference/manifest.json に動物がありません');
     process.exit(2);
@@ -263,10 +271,12 @@ async function main() {
         });
       }
 
-      const ious = Object.values(perView).map((v) => v.iou);
-      // 見ている向きは2つしかない。**下位20%点は実質いちばん低いほう**になる。
-      // 甘いほうを代表値にしない
-      const score = ious.length > 0 ? Math.min(...ious) : 0;
+      // **合否は正面だけで見る**（2026-09-06、人間が決めた。docs/match-gate.md）。
+      // 参照の側面図は4本足で立った獣で、アプリの動物は上半身を起こした形。
+      // そのうえ**アプリのカメラは動物を正面からしか見せない**ので、
+      // 側面は画面に出ない投影を測っていることになる。
+      // 側面は記録するだけで合否に数えない
+      const score = perView.front?.iou ?? 0;
       results.push({
         id: a.id,
         priority: a.priority,
@@ -294,6 +304,7 @@ async function main() {
     const payload = {
       generatedAt: new Date().toISOString(),
       metric: 'M1',
+      gate: 'front-only',
       note: '参照画像に寄っているかを測っている。本物に見えるかは測っていない',
       passLine: M1_PASS,
       normalizedHeightPx: NORM_H,
@@ -301,24 +312,27 @@ async function main() {
       total: results.length,
       animals: results,
     };
-    await writeFile(resolve(OUT_DIR, 'match-score.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    if (!only) {
+      await writeFile(resolve(OUT_DIR, 'match-score.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    }
 
-    for (const view of ['front', 'side']) {
+    for (const view of only ? [] : ['front', 'side']) {
       const sheet = await page.evaluate(buildSheetInPage, { items: overlays[view], cell: 256, cols: 4 });
       const b64 = sheet.slice(sheet.indexOf(',') + 1);
       await writeFile(resolve(OUT_DIR, `m1-${view}.png`), Buffer.from(b64, 'base64'));
     }
 
     console.log(`M1 シルエット一致（合格ライン ${M1_PASS}）`);
-    console.log('id            M1     正面   側面   足りない はみ出し 縦横比(参照→アプリ)');
+    console.log('id           正面   足りない はみ出し 縦横比(参照→アプリ)  (側面=参考)');
     for (const r of results) {
       const f = r.views.front;
       const s = r.views.side;
       const worst = (f?.iou ?? 1) <= (s?.iou ?? 1) ? f : s;
+      void worst;
       console.log(
-        `${r.id.padEnd(12)} ${r.m1.toFixed(3)} ${(f?.iou ?? 0).toFixed(3)} ${(s?.iou ?? 0).toFixed(3)}` +
-          `   ${(worst?.missing ?? 0).toFixed(3)}    ${(worst?.extra ?? 0).toFixed(3)}` +
-          `   ${(worst?.refAspect ?? 0).toFixed(2)} → ${(worst?.appAspect ?? 0).toFixed(2)}` +
+        `${r.id.padEnd(12)} ${(f?.iou ?? 0).toFixed(3)}  ${(f?.missing ?? 0).toFixed(3)}  ${(f?.extra ?? 0).toFixed(3)}` +
+          `   ${(f?.refAspect ?? 0).toFixed(2)} → ${(f?.appAspect ?? 0).toFixed(2)}` +
+          `   ${(s?.iou ?? 0).toFixed(3)}` +
           `  ${r.pass ? '合格' : '**不合格**'}`,
       );
     }
