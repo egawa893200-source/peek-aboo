@@ -16,3 +16,6 @@ dist-ssr/
 # 参照画像の切り出しは npm run ref-split で再生成できる。
 # 記録として残すのは一覧（contact-*.png）と split-report.json だけ
 /reference/animals/*/
+
+# 採点の重なり画像は npm run match-score で再生成できる
+/capture/m1-*.png

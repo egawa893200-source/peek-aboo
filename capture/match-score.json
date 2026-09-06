@@ -1,0 +1,555 @@
+{
+  "generatedAt": "2026-09-06T04:19:06.886Z",
+  "metric": "M1",
+  "note": "参照画像に寄っているかを測っている。本物に見えるかは測っていない",
+  "passLine": 0.7,
+  "normalizedHeightPx": 256,
+  "passed": 3,
+  "total": 16,
+  "animals": [
+    {
+      "id": "ushi",
+      "priority": 1,
+      "m1": 0.585,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6589,
+          "missing": 0.0615,
+          "extra": 0.4244,
+          "areaRatio": 1.363,
+          "refAspect": 0.657,
+          "appAspect": 0.974,
+          "appView": "front",
+          "offset": [
+            -1,
+            2
+          ]
+        },
+        "side": {
+          "iou": 0.585,
+          "missing": 0.2984,
+          "extra": 0.1993,
+          "areaRatio": 0.901,
+          "refAspect": 0.864,
+          "appAspect": 0.907,
+          "appView": "side",
+          "offset": [
+            -6,
+            10
+          ]
+        }
+      }
+    },
+    {
+      "id": "risu",
+      "priority": 2,
+      "m1": 0.6219,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.7074,
+          "missing": 0.0818,
+          "extra": 0.298,
+          "areaRatio": 1.216,
+          "refAspect": 0.491,
+          "appAspect": 0.667,
+          "appView": "front",
+          "offset": [
+            0,
+            -12
+          ]
+        },
+        "side": {
+          "iou": 0.6219,
+          "missing": 0.2406,
+          "extra": 0.2213,
+          "areaRatio": 0.981,
+          "refAspect": 0.852,
+          "appAspect": 0.767,
+          "appView": "side",
+          "offset": [
+            -12,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "hitsuji",
+      "priority": 3,
+      "m1": 0.5831,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.7149,
+          "missing": 0.0479,
+          "extra": 0.3319,
+          "areaRatio": 1.284,
+          "refAspect": 0.88,
+          "appAspect": 1.219,
+          "appView": "front",
+          "offset": [
+            0,
+            -23
+          ]
+        },
+        "side": {
+          "iou": 0.5831,
+          "missing": 0.3767,
+          "extra": 0.0688,
+          "areaRatio": 0.692,
+          "refAspect": 1.118,
+          "appAspect": 0.738,
+          "appView": "side",
+          "offset": [
+            -1,
+            -15
+          ]
+        }
+      }
+    },
+    {
+      "id": "tako",
+      "priority": 4,
+      "m1": 0.6221,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6586,
+          "missing": 0.2089,
+          "extra": 0.2013,
+          "areaRatio": 0.992,
+          "refAspect": 0.998,
+          "appAspect": 0.71,
+          "appView": "front",
+          "offset": [
+            0,
+            -1
+          ]
+        },
+        "side": {
+          "iou": 0.6221,
+          "missing": 0.28,
+          "extra": 0.1573,
+          "areaRatio": 0.877,
+          "refAspect": 0.938,
+          "appAspect": 0.667,
+          "appView": "side",
+          "offset": [
+            -10,
+            4
+          ]
+        }
+      }
+    },
+    {
+      "id": "neko",
+      "priority": 5,
+      "m1": 0.4376,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6855,
+          "missing": 0.1521,
+          "extra": 0.237,
+          "areaRatio": 1.085,
+          "refAspect": 0.703,
+          "appAspect": 0.719,
+          "appView": "front",
+          "offset": [
+            -16,
+            -7
+          ]
+        },
+        "side": {
+          "iou": 0.4376,
+          "missing": 0.4529,
+          "extra": 0.2501,
+          "areaRatio": 0.797,
+          "refAspect": 1.151,
+          "appAspect": 0.705,
+          "appView": "side",
+          "offset": [
+            21,
+            5
+          ]
+        }
+      }
+    },
+    {
+      "id": "inu",
+      "priority": 6,
+      "m1": 0.5525,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6098,
+          "missing": 0.1409,
+          "extra": 0.4087,
+          "areaRatio": 1.268,
+          "refAspect": 0.718,
+          "appAspect": 0.888,
+          "appView": "front",
+          "offset": [
+            -5,
+            -12
+          ]
+        },
+        "side": {
+          "iou": 0.5525,
+          "missing": 0.3416,
+          "extra": 0.1917,
+          "areaRatio": 0.85,
+          "refAspect": 1.097,
+          "appAspect": 0.876,
+          "appView": "side",
+          "offset": [
+            13,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "usagi",
+      "priority": 7,
+      "m1": 0.6612,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6792,
+          "missing": 0.171,
+          "extra": 0.2205,
+          "areaRatio": 1.05,
+          "refAspect": 0.38,
+          "appAspect": 0.452,
+          "appView": "front",
+          "offset": [
+            0,
+            -1
+          ]
+        },
+        "side": {
+          "iou": 0.6612,
+          "missing": 0.2316,
+          "extra": 0.1621,
+          "areaRatio": 0.931,
+          "refAspect": 0.489,
+          "appAspect": 0.45,
+          "appView": "side",
+          "offset": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "nezumi",
+      "priority": 8,
+      "m1": 0.642,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.7219,
+          "missing": 0.0806,
+          "extra": 0.2735,
+          "areaRatio": 1.193,
+          "refAspect": 0.739,
+          "appAspect": 0.779,
+          "appView": "front",
+          "offset": [
+            1,
+            1
+          ]
+        },
+        "side": {
+          "iou": 0.642,
+          "missing": 0.1898,
+          "extra": 0.2621,
+          "areaRatio": 1.072,
+          "refAspect": 0.729,
+          "appAspect": 0.907,
+          "appView": "side",
+          "offset": [
+            -26,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "kotori",
+      "priority": 9,
+      "m1": 0.47,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.47,
+          "missing": 0.0322,
+          "extra": 1.0593,
+          "areaRatio": 2.027,
+          "refAspect": 0.557,
+          "appAspect": 1.176,
+          "appView": "front",
+          "offset": [
+            0,
+            -17
+          ]
+        },
+        "side": {
+          "iou": 0.6165,
+          "missing": 0.0699,
+          "extra": 0.5087,
+          "areaRatio": 1.439,
+          "refAspect": 0.803,
+          "appAspect": 1.202,
+          "appView": "side",
+          "offset": [
+            -31,
+            -13
+          ]
+        }
+      }
+    },
+    {
+      "id": "kaeru",
+      "priority": 10,
+      "m1": 0.7513,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.8067,
+          "missing": 0.0259,
+          "extra": 0.2075,
+          "areaRatio": 1.182,
+          "refAspect": 1.084,
+          "appAspect": 1.219,
+          "appView": "front",
+          "offset": [
+            0,
+            2
+          ]
+        },
+        "side": {
+          "iou": 0.7513,
+          "missing": 0.1944,
+          "extra": 0.0722,
+          "areaRatio": 0.878,
+          "refAspect": 0.928,
+          "appAspect": 0.8,
+          "appView": "side",
+          "offset": [
+            14,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "harinezumi",
+      "priority": 11,
+      "m1": 0.7018,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7514,
+          "missing": 0.112,
+          "extra": 0.1817,
+          "areaRatio": 1.07,
+          "refAspect": 0.92,
+          "appAspect": 1.219,
+          "appView": "front",
+          "offset": [
+            0,
+            -4
+          ]
+        },
+        "side": {
+          "iou": 0.7018,
+          "missing": 0.2936,
+          "extra": 0.0065,
+          "areaRatio": 0.713,
+          "refAspect": 1.026,
+          "appAspect": 0.733,
+          "appView": "side",
+          "offset": [
+            -20,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "chocho",
+      "priority": 12,
+      "m1": 0.5404,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6741,
+          "missing": 0.0117,
+          "extra": 0.4662,
+          "areaRatio": 1.454,
+          "refAspect": 1.203,
+          "appAspect": 1.219,
+          "appView": "front",
+          "offset": [
+            0,
+            15
+          ]
+        },
+        "side": {
+          "iou": 0.5404,
+          "missing": 0.4453,
+          "extra": 0.0264,
+          "areaRatio": 0.581,
+          "refAspect": 0.528,
+          "appAspect": 0.333,
+          "appView": "side",
+          "offset": [
+            -13,
+            10
+          ]
+        }
+      }
+    },
+    {
+      "id": "kumanomi",
+      "priority": 13,
+      "m1": 0.6492,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.6492,
+          "missing": 0.0102,
+          "extra": 0.5246,
+          "areaRatio": 1.514,
+          "refAspect": 0.573,
+          "appAspect": 0.605,
+          "appView": "side",
+          "offset": [
+            0,
+            6
+          ]
+        },
+        "side": {
+          "iou": 0.6873,
+          "missing": 0.0495,
+          "extra": 0.383,
+          "areaRatio": 1.334,
+          "refAspect": 1.414,
+          "appAspect": 1.264,
+          "appView": "front",
+          "offset": [
+            -6,
+            -8
+          ]
+        }
+      }
+    },
+    {
+      "id": "kani",
+      "priority": 14,
+      "m1": 0.5444,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.5444,
+          "missing": 0.1748,
+          "extra": 0.5156,
+          "areaRatio": 1.341,
+          "refAspect": 1.609,
+          "appAspect": 1.333,
+          "appView": "front",
+          "offset": [
+            2,
+            -27
+          ]
+        },
+        "side": {
+          "iou": 0.6404,
+          "missing": 0.1751,
+          "extra": 0.2881,
+          "areaRatio": 1.113,
+          "refAspect": 0.885,
+          "appAspect": 0.676,
+          "appView": "side",
+          "offset": [
+            -28,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "pengin",
+      "priority": 15,
+      "m1": 0.8571,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.9012,
+          "missing": 0.027,
+          "extra": 0.0797,
+          "areaRatio": 1.053,
+          "refAspect": 0.679,
+          "appAspect": 0.724,
+          "appView": "front",
+          "offset": [
+            0,
+            0
+          ]
+        },
+        "side": {
+          "iou": 0.8571,
+          "missing": 0.121,
+          "extra": 0.0256,
+          "areaRatio": 0.905,
+          "refAspect": 0.673,
+          "appAspect": 0.621,
+          "appView": "side",
+          "offset": [
+            12,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "buta",
+      "priority": 16,
+      "m1": 0.5978,
+      "pass": false,
+      "views": {
+        "front": {
+          "iou": 0.5978,
+          "missing": 0.1911,
+          "extra": 0.3531,
+          "areaRatio": 1.162,
+          "refAspect": 0.741,
+          "appAspect": 1.017,
+          "appView": "front",
+          "offset": [
+            0,
+            -20
+          ]
+        },
+        "side": {
+          "iou": 0.694,
+          "missing": 0.253,
+          "extra": 0.0764,
+          "areaRatio": 0.823,
+          "refAspect": 0.853,
+          "appAspect": 0.629,
+          "appView": "side",
+          "offset": [
+            -21,
+            -4
+          ]
+        }
+      }
+    }
+  ]
+}

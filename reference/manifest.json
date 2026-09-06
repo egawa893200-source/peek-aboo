@@ -116,6 +116,10 @@
       "views": {
         "front": "animals/kumanomi/front.png",
         "side": "animals/kumanomi/side.png"
+      },
+      "appViewFor": {
+        "front": "side",
+        "side": "front"
       }
     },
     {
@@ -145,5 +149,6 @@
         "side": "animals/buta/side.png"
       }
     }
-  ]
+  ],
+  "_appViewNote": "appViewFor は「参照のこの向きは、アプリのどの向きと突き合わせるか」。くまのみは ProceduralAnimals が魚を横向きに作っている（正面から見た魚は魚に見えないため）ので、アプリの front カメラには魚の横顔が写る。参照の front（真正面）と突き合わせると別物を比べることになる。"
 }
