@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-09-06T04:51:42.453Z",
+  "generatedAt": "2026-09-06T05:27:54.001Z",
   "metric": "M1",
   "gate": "app-front-camera-only",
   "note": "参照画像に寄っているかを測っている。本物に見えるかは測っていない",
   "passLine": 0.7,
   "normalizedHeightPx": 256,
-  "passed": 15,
-  "total": 16,
+  "passed": 16,
+  "total": 17,
   "animals": [
     {
       "id": "ushi",
@@ -548,6 +548,40 @@
           "offset": [
             -20,
             -5
+          ]
+        }
+      }
+    },
+    {
+      "id": "niwatori",
+      "priority": 17,
+      "m1": 0.7031,
+      "pass": true,
+      "views": {
+        "front": {
+          "iou": 0.7031,
+          "missing": 0.0742,
+          "extra": 0.3166,
+          "areaRatio": 1.242,
+          "refAspect": 0.522,
+          "appAspect": 0.514,
+          "appView": "front",
+          "offset": [
+            -2,
+            -3
+          ]
+        },
+        "side": {
+          "iou": 0.6043,
+          "missing": 0.1701,
+          "extra": 0.3734,
+          "areaRatio": 1.203,
+          "refAspect": 0.623,
+          "appAspect": 0.814,
+          "appView": "side",
+          "offset": [
+            -5,
+            -26
           ]
         }
       }

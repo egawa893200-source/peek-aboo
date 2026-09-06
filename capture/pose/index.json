@@ -670,5 +670,47 @@
     "pixelWidth": 252.1,
     "pixelHeight": 419.8,
     "triangles": 2088
+  },
+  {
+    "animal": "niwatori",
+    "view": "side",
+    "file": "niwatori-side.png",
+    "sha256": "dc41d5a0ba85aeb8b661b343433c028dbeace9b233a15e686f901c0161e551df",
+    "bytes": 72049,
+    "size": 512,
+    "worldHeight": 0.902,
+    "worldWidth": 0.462,
+    "worldDepth": 0.3864,
+    "pixelWidth": 342.6,
+    "pixelHeight": 419.8,
+    "triangles": 2212
+  },
+  {
+    "animal": "niwatori",
+    "view": "front",
+    "file": "niwatori-front.png",
+    "sha256": "5f0caac531ea7be2c936149e5b04f848522cdf2feff4ad51ca2c694080aa4cee",
+    "bytes": 91403,
+    "size": 512,
+    "worldHeight": 0.902,
+    "worldWidth": 0.462,
+    "worldDepth": 0.3864,
+    "pixelWidth": 215,
+    "pixelHeight": 419.8,
+    "triangles": 2212
+  },
+  {
+    "animal": "niwatori",
+    "view": "three-quarter",
+    "file": "niwatori-three-quarter.png",
+    "sha256": "0063469aeb9293af4ce5775b770c4acd86ac6841e6dd2885cf07f40d0c043136",
+    "bytes": 83708,
+    "size": 512,
+    "worldHeight": 0.902,
+    "worldWidth": 0.462,
+    "worldDepth": 0.3864,
+    "pixelWidth": 284.1,
+    "pixelHeight": 419.8,
+    "triangles": 2212
   }
 ]

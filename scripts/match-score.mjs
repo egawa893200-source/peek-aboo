@@ -219,6 +219,8 @@ async function main() {
 
   const manifest = JSON.parse(await readFile(resolve(ROOT, 'reference/manifest.json'), 'utf8'));
   const animals = (manifest.animals ?? [])
+    // **pending はアプリにまだ居ない動物**。参照画像だけがある状態なので採点できない
+    .filter((a) => !a.pending)
     .filter((a) => !only || a.id === only)
     .slice()
     .sort((a, b) => a.priority - b.priority);

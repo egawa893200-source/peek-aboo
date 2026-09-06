@@ -349,8 +349,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
     headTop: 'comb',
     snout: 'beak',
     tail: 'feather',
-    bodyHeight: 0.8,
-    bodyWidth: 0.62,
+    bodyHeight: 0.92,
+    bodyWidth: 0.42,
   },
 ];
 
