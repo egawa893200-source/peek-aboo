@@ -75,6 +75,7 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true });
 
   let total = 0;
+  const sizes = [];
   try {
     for (const id of targets) {
       const src = resolve(SRC_DIR, id, 'front.png');
@@ -93,9 +94,31 @@ async function main() {
       const bytes = Buffer.from(r.url.slice(r.url.indexOf(',') + 1), 'base64');
       await writeFile(resolve(OUT_DIR, `${id}.webp`), bytes);
       total += bytes.length;
+      sizes.push([id, r.w, r.h]);
       console.log(`${id.padEnd(12)} ${r.w}x${r.h}  ${(bytes.length / 1024).toFixed(0)}KB`);
     }
     console.log(`\n${targets.length} 体 / 合計 ${(total / 1024).toFixed(0)}KB → public/animals/`);
+
+    // **絵の大きさを src にも書き出す。**
+    // 単体テストは node で走るので画像を読めない。ここが無いと、絵を貼った
+    // 動物（`CutoutAnimal`）を一度もテストできない。実際にそれで
+    // 「ヒントの位置を設定し忘れて 25体すべてが不変条件3 違反」を見逃した
+    if (only.length === 0) {
+      const lines = sizes.map(([id, w, h]) => `  ${id}: [${w}, ${h}],`).join('\n');
+      const file = `/**
+ * 絵の大きさ（**自動生成。手で書き換えないこと**）
+ *
+ * \`npm run cutouts\` が \`public/animals/<id>.webp\` を作るときに一緒に書く。
+ * 単体テストが、画像を読まずに絵の縦横比を再現するために使う。
+ * アプリ本体は使わない（実行時はテクスチャから読む）。
+ */
+export const CUTOUT_SIZES: Readonly<Record<string, readonly [number, number]>> = {
+${lines}
+};
+`;
+      await writeFile(resolve(ROOT, 'src/data/cutoutSizes.ts'), file, 'utf8');
+      console.log('src/data/cutoutSizes.ts を書きました');
+    }
   } finally {
     await browser.close();
   }

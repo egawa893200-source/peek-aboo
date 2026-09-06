@@ -69,6 +69,16 @@ export interface ProceduralAnimal {
   readonly hint: THREE.Object3D;
   /** `hint` の高さ。`height` の HINT_EXPOSURE 倍にしてある */
   readonly hintHeight: number;
+  /**
+   * `true` なら `AnimalSystem` が**隠れ場所に合わせて大きさを決め直す**。
+   *
+   * 手続き生成の動物は、隠れ場所ごとの制約（開口の幅・縁の高さ）を見ながら
+   * `data/animals.ts` で1体ずつ手で決めてあるので `false`。
+   * 絵を貼った動物（`CutoutAnimal`）は絵の縦横比が先に決まっていて、
+   * 手で決めると隠れ場所の半分しか使わない大きさになる（実測: 開口 1.21〜1.29 に対して
+   * 動物の幅が 0.49〜0.70 しかなく、1歳半には小さすぎると言われた）。
+   */
+  readonly autoFit: boolean;
   /** 登場の山で一瞬だけ明るくする（§4-4）。加算ではなく emissive を上げる */
   setGlow(amount: number): void;
   dispose(): void;
@@ -182,6 +192,8 @@ export function createProceduralAnimal(cfg: AnimalConfig): ProceduralAnimal {
     gazeStrength: built.gazeStrength,
     hint,
     hintHeight,
+    // 手続き生成は data/animals.ts で1体ずつ決めてある
+    autoFit: false,
     setGlow(amount) {
       // **加算の光を足さない。** みずのなかでは、生き物に載せた加算のリムライト
       // （最大 +1.7）が体色を白く消していた。emissive を体色そのものに寄せて

@@ -39,8 +39,24 @@ export const FLASH_MIN_INTERVAL_SEC = 0.4;
 /** 光の減衰。長いと「点いたまま」に見えて、明滅の回数を数えても意味が無くなる */
 const GLOW_DECAY_SEC = 0.32;
 
-/** 出きったときに、体をどれだけ縁の上に出すか（1.0 = 全身） */
-const OUT_LIFT = 0.9;
+/**
+ * 出きったときに、体をどれだけ縁の上に出すか（1.0 = 全身）。
+ *
+ * **0.9 では足りなかった**（2026-09-06）。新しく足した
+ * 「出きったとき、体がカメラから見えている」で、そと の いわ が 53% しか
+ * 見えず落ちた。いわは開いた半分が手前へ張り出すので、縁に埋めたぶんが
+ * そのまま隠れる。0.95 で全場面が通る。
+ * **0 にしないこと。** 少しだけ埋まっていないと「そこから出てきた」に見えない
+ */
+const OUT_LIFT = 0.95;
+
+/**
+ * 絵を貼った動物を、開口の幅の何倍まで大きくするか。
+ * §4-2 の上限（`mouthWidth >= animalWidth * 0.86`）そのもの
+ */
+const FIT_WIDTH = 0.86;
+/** 隠れたときに縁の下へ収めるための余白 */
+const FIT_MARGIN = 0.02;
 
 /**
  * 隠れているとき、体の頭を縁より**どれだけ下**に沈めるか（ワールド）。
@@ -106,6 +122,15 @@ export interface AnimalSlot {
    * 不変条件3 のこの扱いは**人間が決めた**（2026-09-05）。
    */
   showHint: boolean;
+  /**
+   * 実際に掛けている倍率。
+   *
+   * 手続き生成は `config.scale` そのまま。絵を貼った動物（`autoFit`）は、
+   * **隠れ場所ごとに `anchor()` が決め直す**（開口の幅と、縁の高さの両方から）。
+   * モードB（§4-5）では移動先ごとに変わるので、`config.scale` を直接
+   * 読まずに必ずここを見ること。
+   */
+  fitScale: number;
 }
 
 /** 不変条件3 を数値で見るための実測値。すべてワールド座標 */
@@ -182,10 +207,7 @@ export class AnimalSystem {
     // `AnimalSystem` から先は、どちらで作られたか知らないままで動く
     const cutout = this.cutouts.get(animalId);
     const built = cutout ? createCutoutAnimal(config, cutout) : createProceduralAnimal(config);
-    const scale = config.scale;
     const coverTopY = spot.shape.coverTopY;
-
-    built.group.scale.setScalar(scale);
 
     const slot: AnimalSlot = {
       spotId: spot.config.id,
@@ -196,6 +218,7 @@ export class AnimalSystem {
       outY: 0,
       coverTopY,
       glow: 0,
+      fitScale: config.scale,
       driven: false,
       gazeTarget: null,
       showHint: true,
@@ -225,7 +248,18 @@ export class AnimalSystem {
 
   /** 隠れ場所に合わせて、隠れる高さ・出きる高さ・ヒントの奥行きを決め直す */
   private anchor(slot: AnimalSlot, spot: SpotRuntime): void {
-    const scale = slot.config.scale;
+    // **絵を貼った動物は、隠れ場所ごとに大きさを決め直す。**
+    // 固定の大きさにしていたら、開口 1.21〜1.29 に対して動物の幅が
+    // 0.49〜0.70 しか無く、1歳半には小さすぎると言われた（実測）。
+    // 幅は §4-2 の上限まで、高さは「隠れたときに縁の下へ収まる」まで
+    if (slot.built.autoFit) {
+      const byWidth = (spot.shape.mouthWidth * FIT_WIDTH) / slot.built.width;
+      const room = spot.shape.coverTopY - spot.shape.coverBottomY - HIDDEN_SINK - FIT_MARGIN;
+      const byHeight = room / slot.built.height;
+      slot.fitScale = Math.max(0.2, Math.min(byWidth, byHeight));
+    }
+    const scale = slot.fitScale;
+    slot.built.group.scale.setScalar(scale);
     const h = slot.built.height * scale;
     slot.coverTopY = spot.shape.coverTopY;
     // 隠れている位置。**体のてっぺんが、ちょうど縁と同じ高さ。**
@@ -287,7 +321,9 @@ export class AnimalSystem {
       }
 
       // --- 大きさ。§4-4 のオーバーシュート -----------------------------------
-      built.group.scale.setScalar(slot.config.scale * (1 + OVERSHOOT * spot.pulse));
+      // **`config.scale` ではなく `fitScale`。** 絵を貼った動物は
+      // 隠れ場所ごとに倍率が違うので、ここで戻すと毎フレーム元の大きさに縮む
+      built.group.scale.setScalar(slot.fitScale * (1 + OVERSHOOT * spot.pulse));
 
       // --- ヒント（§4-2） ----------------------------------------------------
       // 出はじめたら引っ込める。頭の上に尻尾が残っていたら、ただの飾りになる。
@@ -334,7 +370,7 @@ export class AnimalSystem {
     const scale = spot.config.scale;
     const coverTopY = spot.worldPosition.y + slot.coverTopY * scale;
     const coverBottomY = spot.worldPosition.y + spot.shape.coverBottomY * scale;
-    const animalHeight = slot.built.height * slot.config.scale * scale;
+    const animalHeight = slot.built.height * slot.fitScale * scale;
 
     slot.built.group.updateWorldMatrix(true, true);
 
@@ -374,7 +410,7 @@ export class AnimalSystem {
   getFit(spot: SpotRuntime): { mouthWidth: number; animalWidth: number; ratio: number } | null {
     const slot = this.slots.get(spot.config.id);
     if (!slot) return null;
-    const animalWidth = slot.built.width * slot.config.scale;
+    const animalWidth = slot.built.width * slot.fitScale;
     const mouthWidth = spot.shape.mouthWidth;
     return { mouthWidth, animalWidth, ratio: mouthWidth / animalWidth };
   }

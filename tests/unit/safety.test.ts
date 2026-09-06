@@ -23,6 +23,8 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { ANIMALS } from '../../src/data/animals';
+import { CUTOUT_SIZES } from '../../src/data/cutoutSizes';
+import type { SceneConfig } from '../../src/types';
 import { findScene, SCENES } from '../../src/data/scenes';
 import {
   AnimalSystem,
@@ -122,10 +124,34 @@ const NOHARA = findScene('nohara');
  * **`SceneRoot` と同じにしておくこと。** 片方だけ直すと、
  * テストは通るのに実機では違う、という一番たちの悪い形になる。
  */
-function sceneRig(sceneId: string, seed = 12345): ChaseRig {
+/**
+ * 絵を貼った動物（`CutoutAnimal`）を node で組むための、中身の無いテクスチャ。
+ *
+ * **画像は読めないが、読む必要も無い。**
+ * `createCutoutAnimal` が見るのは `texture.image.width / height` だけで、
+ * レイを飛ばす判定もジオメトリしか使わない。大きさは `npm run cutouts` が
+ * 書き出した実測値（`CUTOUT_SIZES`）をそのまま使う。
+ */
+function fakeCutouts(scene: SceneConfig): Map<string, THREE.Texture> {
+  const ids = new Set<string>();
+  for (const spot of scene.spots) for (const id of spot.animals) ids.add(id);
+  if (scene.runner) ids.add(scene.runner);
+
+  const map = new Map<string, THREE.Texture>();
+  for (const id of ids) {
+    const size = CUTOUT_SIZES[id];
+    if (!size) continue;
+    const tex = new THREE.Texture();
+    tex.image = { width: size[0], height: size[1] };
+    map.set(id, tex);
+  }
+  return map;
+}
+
+function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
   const scene = findScene(sceneId);
   const spots = new SpotSystem(scene.spots, scene.mode);
-  const animals = new AnimalSystem(spots, false);
+  const animals = new AnimalSystem(spots, false, useCutouts ? fakeCutouts(scene) : new Map());
 
   let chase: ChaseSystem | null = null;
   if (scene.mode === 'chase' && scene.runner) {
@@ -1187,6 +1213,74 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
       ).toBe(0);
     }
   });
+
+  /**
+   * **出きったときに、体がカメラから見えていること。**
+   *
+   * この不変条件はテストが無く、実機で「ねことうしの隠れ場所が開いた時に
+   * 画像と被って見えなくなっている」と報告されて初めて分かった（2026-09-06）。
+   *
+   * 原因は、絵を貼った動物には厚みが無く、置き場（animalZ = −0.20）に
+   * ぴったり立つこと。手続き生成の動物は厚み 0.4 を持っていて z = −0.4〜0.0 を
+   * 占めていたので、前板（z = +0.22）との隙間が詰まっていた。
+   * **「縁より上に出ている高さ」は 1.29 あって正常だった。**
+   * 高さだけ見ていると気づけない。カメラから見て当たるかで見る。
+   */
+  it.each([...HIDEOUT_SCENES.map((id) => [id, false] as const), ...HIDEOUT_SCENES.map((id) => [id, true] as const)])(
+    '%s（絵=%s）: 出きったとき、体がカメラから見えている',
+    (id, useCutouts) => {
+      const COLS = 9;
+      const ROWS = 9;
+      /** 見かけの矩形のうち、これだけの割合が体でなければならない */
+      const NEED = 0.55;
+
+      const { spots, animals, camera, advance } = sceneRig(id, 12345, useCutouts);
+      advance(0.5);
+      for (const spot of spots.runtimes) spots.tap(spot);
+      // 登場（0.15 + 0.35）＋ 余白
+      advance(0.8);
+
+      const ray = new THREE.Raycaster();
+      const target = new THREE.Vector3();
+      const dir = new THREE.Vector3();
+      const box = new THREE.Box3();
+
+      for (const spot of spots.runtimes) {
+        const slot = animals.getSlot(spot.config.id);
+        if (!slot) continue;
+        spots.group.updateWorldMatrix(true, true);
+
+        box.makeEmpty();
+        for (const child of slot.built.group.children) {
+          if (child === slot.built.hint) continue;
+          box.expandByObject(child);
+        }
+
+        let seen = 0;
+        let total = 0;
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            target.set(
+              box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / COLS,
+              box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / ROWS,
+              (box.min.z + box.max.z) / 2
+            );
+            dir.subVectors(target, camera.position).normalize();
+            ray.set(camera.position, dir);
+            const hits = ray.intersectObject(spots.group, true);
+            if (hits.length === 0) continue;
+            total++;
+            if (isDescendantOf(hits[0].object, slot.built.group)) seen++;
+          }
+        }
+        const ratio = total === 0 ? 0 : seen / total;
+        expect(
+          ratio,
+          `${id}/${spot.config.id}: 出きったのに体が ${(ratio * 100).toFixed(0)}% しか見えていない`
+        ).toBeGreaterThanOrEqual(NEED);
+      }
+    }
+  );
 
   it.each(HIDEOUT_SCENES)('%s: ヒントがカメラから遮られずに見えている', (id) => {
     const { spots, animals, camera, advance } = sceneRig(id);

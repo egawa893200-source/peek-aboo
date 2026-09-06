@@ -41,6 +41,18 @@ import { disposeObject3D } from './SpotShapes';
 const PLANE_DEPTH = 0.04;
 
 /**
+ * 板を、置き場（`animalZ`）よりどれだけ手前へ出すか。
+ *
+ * **これが無いと、出きっても体が前板の裏に隠れる。**
+ * 手続き生成の動物は厚み 0.4 を持っていて z = −0.4〜0.0 を占めるので、
+ * 前板（z = +0.22）との隙間が詰まっていた。板には厚みが無いので
+ * `animalZ`（−0.20）ちょうどに立ち、0.2 ぶん奥に下がる。
+ * 見下ろし 11.8° のカメラでは、そのぶん前板に食われる（実測で、
+ * ねこは耳しか見えなかった）。前板より手前には出さない。
+ */
+const FORWARD = 0.26;
+
+/**
  * 透明・不透明の境目。
  * **`transparent: true` にしないこと。** 半透明にすると描画順の問題が出て、
  * 隠れ場所のふたと前後が入れ替わる回ができる。参照画像は輪郭線つきで
@@ -92,6 +104,7 @@ export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): P
   // 原点を足元に（`createProceduralAnimal` と同じ約束）
   bodyGeo.translate(0, height / 2, 0);
   const body = new THREE.Mesh(bodyGeo, material);
+  body.position.z = FORWARD;
   body.name = `cutout.${cfg.id}`;
   group.add(body);
 
@@ -122,6 +135,10 @@ export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): P
     gazeStrength: 0,
     hint,
     hintHeight,
+    // **隠れ場所に合わせて大きさを決め直させる。**
+    // 絵の縦横比は先に決まっているので、幅と高さの制約から
+    // いちばん大きく収まる倍率を `AnimalSystem` が出す
+    autoFit: true,
     setGlow(amount) {
       // `MeshBasicMaterial` に emissive は無いので、色を 1 より上げて明るくする。
       // **加算の光を足さない**（体色が飛ぶ。CLAUDE.md の実測）
