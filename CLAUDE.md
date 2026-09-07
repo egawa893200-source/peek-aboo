@@ -133,6 +133,8 @@ npm run typecheck    # 型チェックのみ
 npm run test         # Vitest（ロジックの単体テスト）
 npm run test:e2e     # Playwright（ブラウザ実動作）
 npm run verify       # typecheck + test + test:e2e
+npm run cutouts      # reference/animals/<id>/front.png → public/animals/<id>.webp
+npm run backgrounds  # reference/backgrounds/<id>.png  → public/backgrounds/<id>.webp
 ```
 
 ## CI が判定しないこと
@@ -506,11 +508,17 @@ composer 側に `multisampling` を渡さないと、どの端末でもジャギ
 **声を足すときは動的 import にすること**（静的に3本足したら初期バンドルが
 847KB → 1,023KB になった）。
 
-## 背景の絵を入れるとき（2026-09-07 に受け入れ口だけ用意した）
+## 背景の絵（2026-09-07。7場面ぶん入った）
 
-`public/backgrounds/<場面id>.webp` を置いて、`SceneConfig.backgroundUrl` に
-`/backgrounds/<場面id>.webp` を書くだけ。**置かなければ従来どおり
+**元の絵は `reference/backgrounds/<場面id>.png`**（1024 × 2048 の PNG）。
+`npm run backgrounds` が `public/backgrounds/<場面id>.webp` に変換し、
+`SceneConfig.backgroundUrl` がそれを指す。**置かなければ従来どおり
 手続き生成のグラデーション**（不変条件7）。
+
+**PNG のまま `public/` に置かないこと。** 7枚で 9.0MB あり、
+WebP（品質 0.82）にすると **181KB** になる。50分の1。
+変換はヘッドレス Chromium にやらせている（WebP エンコーダを依存に足さないため。
+`scripts/make-cutouts.mjs` と同じ作り）。
 
 - **推奨 1024 × 2048（縦 1:2）。** この奥行き（z = -1.55、カメラから 8.75）で
   画面に入るのは縦 11.36・横 5.57 なので、1:2 がちょうど収まる
@@ -562,7 +570,8 @@ Netlify（`netlify.toml`）。`main` に push すると自動で公開される�
   （声は `scripts/make-voice.cjs` が生成。**ffmpeg が無くても作れる**ように
   WAV の変換を JS でも書いてある）
 - `tests/unit/safety.test.ts` 254件 と E2E 23件
-- 素材はゼロのまま。`public/` は空で動く（不変条件7）
+- 素材: 動物の絵25枚（`public/animals/`）と背景7枚（`public/backgrounds/`）。
+  **`public/` を空にしても動く**（不変条件7）
 
 入っていないもの:
 - `RevealEffect`（登場の粒子。Phase 2）

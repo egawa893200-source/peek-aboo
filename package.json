@@ -16,7 +16,8 @@
     "shot": "node scripts/shot.mjs",
     "ref-split": "node scripts/ref-split.mjs",
     "match-score": "node scripts/match-score.mjs",
-    "cutouts": "node scripts/make-cutouts.mjs"
+    "cutouts": "node scripts/make-cutouts.mjs",
+    "backgrounds": "node scripts/make-backgrounds.mjs"
   },
   "dependencies": {
     "three": "^0.185.1"

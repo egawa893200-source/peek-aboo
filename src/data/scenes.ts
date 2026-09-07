@@ -92,7 +92,7 @@ const OUCHI: SceneConfig = {
   label: "おうち",
   mode: "hideout",
   // 素材はまだ1つも無い。null なら手続き生成に落ちる（不変条件7）
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/ouchi.webp',
   ambientSound: null,
   spots: [
     {
@@ -168,7 +168,7 @@ const NOHARA: SceneConfig = {
   flavor: { sway: "wind", footprints: true, cameo: true },
   label: "のはら",
   mode: "chase",
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/nohara.webp',
   ambientSound: null,
   runner: "usagi",
   spots: [
@@ -234,7 +234,7 @@ const SOTO: SceneConfig = {
   },
   label: "そと",
   mode: "hideout",
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/soto.webp',
   ambientSound: null,
   spots: [
     {
@@ -291,7 +291,7 @@ const UMI: SceneConfig = {
   flavor: { sway: "water", crossing: "fish", crossingLands: true, bubbles: true },
   label: "うみ",
   mode: "hideout",
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/umi.webp',
   ambientSound: null,
   spots: [
     {
@@ -344,7 +344,7 @@ const NOUJOU: SceneConfig = {
   flavor: { sway: "wind", wobble: true, chorus: true, leftover: "egg" },
   label: "のうじょう",
   mode: "hideout",
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/noujou.webp',
   ambientSound: null,
   spots: [
     {
@@ -390,7 +390,7 @@ const DOBUTSUEN: SceneConfig = {
   flavor: { sway: "wind", footstep: true },
   label: "どうぶつえん",
   mode: "hideout",
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/dobutsuen.webp',
   ambientSound: null,
   spots: [
     {
@@ -437,7 +437,7 @@ const KYORYU: SceneConfig = {
   flavor: { quake: true, footstep: true, leftover: "egg" },
   label: "きょうりゅう",
   mode: "hideout",
-  backgroundUrl: null,
+  backgroundUrl: '/backgrounds/kyoryu.webp',
   ambientSound: null,
   spots: [
     {
