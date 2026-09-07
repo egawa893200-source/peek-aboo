@@ -219,7 +219,7 @@ export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape
   // （判定の実測: 5株の輪郭の重なり IoU が 0.847〜0.903）
   const seed = (Math.round((spotX + 8) * 977) * 131 + Math.round((spotY + 8) * 977)) >>> 0;
   const shape = buildSpotShape(kind, spotY, spotX, seed);
-  fitBackPlates(shape.group);
+  fitBackPlates(shape);
   applySurface(shape.group, kind, seed);
   return shape;
 }
@@ -247,7 +247,8 @@ const _backBox = new THREE.Box3();
  * たまごの背板（半楕円）は伸ばすと角が出るので触らない（`BoxGeometry` だけ）。
  * ==========================================================================
  */
-function fitBackPlates(group: THREE.Group): void {
+function fitBackPlates(shape: SpotShape): void {
+  const group = shape.group;
   const backs: THREE.Mesh[] = [];
   group.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -266,10 +267,15 @@ function fitBackPlates(group: THREE.Group): void {
   });
   if (_backBox.isEmpty()) return;
 
+  // **縁より上まで伸ばさないこと。**
+  // 隠れているあいだ動物は縁より下に居るので、塞ぐ必要があるのは縁までで足りる。
+  // きのほら は幹の柱が H×2.0 あって、背板がその高さに合わせて伸び、
+  // 板塀の上に黒いドームが乗って見えた（2026-09-07）
+  const top = Math.min(_backBox.max.y, shape.coverTopY);
   const wantW = _backBox.max.x - _backBox.min.x;
-  const wantH = _backBox.max.y - _backBox.min.y;
+  const wantH = Math.max(0.2, top - _backBox.min.y);
   const centerX = (_backBox.max.x + _backBox.min.x) / 2;
-  const centerY = (_backBox.max.y + _backBox.min.y) / 2;
+  const centerY = (top + _backBox.min.y) / 2;
 
   for (const back of backs) {
     // **四角いままだと、丸い塊のまわりに板の角が残る。**
