@@ -208,7 +208,7 @@ function plate(
  * **未知の `kind` でも必ず何かを返す**（不変条件1／7）。
  * データの打ち間違いで隠れ場所が1つ消えると、そこは「押しても無反応」になる。
  */
-export function createSpotShape(kind: SpotKind, spotY = 0): SpotShape {
+export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape {
   const palette = PALETTES[kind] ?? PALETTES.box;
   switch (kind) {
     case 'curtain':
@@ -228,7 +228,7 @@ export function createSpotShape(kind: SpotKind, spotY = 0): SpotShape {
     case 'pot':
       return createPot(palette);
     case 'egg':
-      return createEgg(palette);
+      return createEgg(palette, spotX);
     default:
       // 未知の形でも、箱で代役を立てて押しても無反応にはしない（不変条件1／7）
       return createBox(palette);
@@ -906,91 +906,106 @@ function createPot(p: Palette): SpotShape {
  * 縁のあたりに菱形の隙間が残る。平らな板を1枚重ねて塞ぐ。
  * ==========================================================================
  */
-function createEgg(p: Palette): SpotShape {
+function createEgg(p: Palette, spotX: number): SpotShape {
   const group = new THREE.Group();
 
-  const RX = HALF_W * 0.94;
   /** 割れ目（ここが縁。ほかの隠れ場所と同じ高さに合わせる） */
   const CRACK_Y = HALF_H;
-  /** 下半分の深さ。ほかの隠れ場所と同じくらいの「部屋」を作る */
+  /** 縁から下の深さ。ほかの隠れ場所と同じくらいの「部屋」を作る */
   const LOWER = 1.575;
-  const RZ = D * 0.36;
+  const RX = HALF_W * 0.94;
+  const RZ = D * 0.44;
 
-  // 殻の下半分。**これが前板を兼ねる。**
+  // ==========================================================================
+  // **1つの楕円体を、赤道より上で割る。**
   //
-  // はじめは「奥に沈めた楕円体 ＋ 四角い前板」で作ったが、実機で
-  // 「たまごの前にドアがあって変わらず見づらい」と言われた（2026-09-07）。
-  // 四角い板の角が、殻とは別のものに見えていた。
+  // 下半球（＝赤道で割る）で作った版は、実機で「たまごの下半分がドアっぽくて
+  // 変。完全な卵のほうがいい」と言われた（2026-09-07）。赤道で割ると、
+  // いちばん太いところが割れ目に来るので、**上に向かってすぼまらない**。
+  // 輪郭が「上が平らな箱」に見えていた。
   //
-  // **横に広く、奥行きは薄く。** 下半球を縁に合わせて置くと、
-  // いちばん太いところ（赤道）が縁に来るので、横は開口部を覆いきり、
-  // 奥行きは薄いので出てきた動物の前に張り出さない
-  // （厚い版では殻が動物に掛かって、見えている割合が 68% まで落ちた）。
-  // 前面の z は、ほかの隠れ場所の前板と同じ 0.22 にそろえてある
+  // 割れ目を赤道より上（RY の 0.24 ぶん上）に置くと、下半分は
+  // 「太いところが下寄りにあって、上に向かってすぼまる」たまごの形になり、
+  // ふたと合わせると輪郭が1つの卵につながる。
+  // **上下は同じ楕円体の一部**なので、閉じたときに段差ができない。
+  // ==========================================================================
+  /** 割れ目が、楕円体の中心からどれだけ上にあるか（RY に対する割合） */
+  const CRACK_AT = 0.24;
+  const RY = LOWER / (1 + CRACK_AT);
+  /** 楕円体の中心 */
+  const CY = CRACK_Y - CRACK_AT * RY;
+  /** 前面の z を、ほかの隠れ場所の前板（0.22）にそろえる */
+  const CZ = FRONT_Z - RZ;
+  /** 割れ目のところの半幅 */
+  const CRACK_HALF_W = RX * Math.sqrt(1 - CRACK_AT * CRACK_AT);
+  /** 割れ目の角度（+Y から測る。three の `thetaStart` の向き） */
+  const CRACK_THETA = Math.acos(CRACK_AT);
+
+  // 殻の下側。**これが前板を兼ねる**（別に四角い板を貼らない）
   const lower = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+    new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, CRACK_THETA, Math.PI - CRACK_THETA),
     standard(p.body, 0.9)
   );
   lower.name = 'egg.lower';
-  lower.scale.set(RX, LOWER, RZ);
-  lower.position.set(0, CRACK_Y, FRONT_Z - RZ);
+  lower.scale.set(RX, RY, RZ);
+  lower.position.set(0, CY, CZ);
   group.add(lower);
 
   // 背板。奥からの抜けを塞ぐ。
-  //
   // **四角い板にしないこと。** 殻からはみ出した角が「たまごの後ろに
-  // 板が置いてある」ように見えた（2026-09-07 に実機で指摘）。
-  // 殻と同じ形（下半分の楕円）を、ひとまわり小さく作って隠す
-  const back = new THREE.Mesh(
-    new THREE.CircleGeometry(1, 20, Math.PI, Math.PI),
-    standard(p.body, 0.95)
-  );
+  // 板が置いてある」ように見えた。殻の内側に収まる半楕円にする
+  const back = new THREE.Mesh(new THREE.CircleGeometry(1, 24, Math.PI, Math.PI), standard(p.body, 0.95));
   back.name = 'egg.back';
-  back.scale.set(RX * 0.98, LOWER * 0.98, 1);
+  back.scale.set(CRACK_HALF_W * 0.95, LOWER * 0.98, 1);
   back.position.set(0, CRACK_Y, -HALF_D - 0.1);
   group.add(back);
 
-  // まだら。無地だと石に見えた。**殻の表面に沿って置く**
-  for (const [x, y, r] of [
-    [-0.3, -0.22, 0.12],
-    [0.24, -0.6, 0.1],
-    [0.06, -0.95, 0.08],
+  // まだら。無地だと石に見えた。**殻の面に沿って置く**
+  for (const [u, v, r] of [
+    [-0.34, -0.2, 0.12],
+    [0.28, -0.58, 0.1],
+    [0.05, -0.95, 0.08],
   ] as const) {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), standard(p.accent, 0.95));
     dot.name = 'egg.dot';
     dot.scale.z = 0.2;
-    dot.position.set(x, CRACK_Y + y, FRONT_Z - 0.01);
+    dot.position.set(u * RX, CRACK_Y + v, FRONT_Z - 0.02);
     group.add(dot);
   }
 
-  // 上半分（ふた）。**横に倒れて開く**
+  // 上側（ふた）。**同じ楕円体の上の部分**なので、閉じると輪郭がつながる。
+  // 割れ目の左端を軸にして、横に倒れて開く
+  //
+  // **画面の内側へ倒す。** 左の列で左へ倒すと、ふたが画面の外に出て
+  // 「ふたが消えた」ように見える（2026-09-07 の実測）
+  const tipSide = spotX < 0 ? 1 : -1;
   const capPivot = new THREE.Group();
-  capPivot.position.set(-RX * 0.87, CRACK_Y, 0.0);
+  capPivot.position.set(tipSide * CRACK_HALF_W, CRACK_Y, CZ);
   const cap = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-    standard(p.cover, 0.9)
+    new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, CRACK_THETA),
+    standard(p.body, 0.9)
   );
   cap.name = 'egg.cap';
-  // **胴と同じ幅にする。** 広いと「たまご」ではなく「きのこ」に見えた
-  cap.scale.set(RX * 0.87, H * 0.6, RZ);
-  cap.position.set(RX * 0.87, 0, 0);
+  cap.scale.set(RX, RY, RZ);
+  cap.position.set(-tipSide * CRACK_HALF_W, CY - CRACK_Y, 0);
   capPivot.add(cap);
   group.add(capPivot);
 
   return {
     group,
     coverTopY: CRACK_Y,
-    coverBottomY: CRACK_Y - LOWER,
-    mouthWidth: RX * 1.72,
+    coverBottomY: CY - RY,
+    // 割れ目のところの幅。**楕円体の最大幅ではない**
+    mouthWidth: CRACK_HALF_W * 1.9,
     animalZ: ANIMAL_Z,
     hintZ: HINT_Z,
     setOpen(t) {
       // 左の縁を軸に、外へ倒す。**上へは逃がさない**（動物に重なる）。
       // 1.35rad ＋ 0.34 では、出てきた動物にふたが掛かって
       // 体の見えている割合が 54% まで落ちた（判定は 55%）
-      capPivot.rotation.z = t * 1.9;
-      capPivot.position.x = -RX * 0.87 - t * 0.52;
-      capPivot.position.y = CRACK_Y + t * 0.06;
+      capPivot.rotation.z = -tipSide * t * 1.35;
+      capPivot.position.x = tipSide * (CRACK_HALF_W + t * 0.3);
+      capPivot.position.y = CRACK_Y + t * 0.04;
     },
     setWobble(r) {
       group.rotation.z = r;
