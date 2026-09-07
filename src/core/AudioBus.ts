@@ -301,7 +301,7 @@ export class AudioBus {
    * 本物の声には聞こえないが、口の動きとしては伝わる。
    */
   /** 読み込んだ声を鳴らす。鳴らせたら true。 */
-  private playVoiceClip(name: VoiceClip): boolean {
+  private playVoiceClip(name: VoiceClip, rate = 1): boolean {
     const ctx = this.ctx;
     const buffer = this.voiceBuffers[name];
     if (!ctx || !this.master || !buffer) return false;
@@ -311,6 +311,8 @@ export class AudioBus {
     try {
       const src = ctx.createBufferSource();
       src.buffer = buffer;
+      // **±5% まで。** これ以上振ると別人の声になる（§6-1）
+      src.playbackRate.value = Math.max(0.9, Math.min(1.1, rate));
       const gain = ctx.createGain();
       // master がすでに音量を持っているので、ここでは掛けない（VOICE_CLIP_GAIN の説明）
       const t0 = ctx.currentTime;
@@ -521,9 +523,15 @@ export class AudioBus {
    * `voiceBusyUntil` が防ぐので、言葉が潰れることはない。
    * まだデコードが終わっていない初回だけ、合成音が代役に立つ（§2 無音にしない）。
    */
-  playVoice(clip: VoiceClip = 'baa'): void {
+  /**
+   * 録音した声を1本鳴らす。
+   *
+   * @param rate 再生速度。**§6-1 の「声のピッチが ±5% ばらつく」はここ。**
+   *   1.0 が素のまま。0.95〜1.05 で「毎回まったく同じ声」でなくなる
+   */
+  playVoice(clip: VoiceClip = 'baa', rate = 1): void {
     if (this.muted || this.disabled || !this.unlocked) return;
-    if (this.playVoiceClip(clip)) return;
+    if (this.playVoiceClip(clip, rate)) return;
     void this.ensureVoice(clip);
     this.fallbackVoice(clip);
   }

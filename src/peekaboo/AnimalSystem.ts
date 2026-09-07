@@ -360,8 +360,13 @@ export class AnimalSystem {
 
       // --- 大きさ。§4-4 のオーバーシュート -----------------------------------
       // **`config.scale` ではなく `fitScale`。** 絵を貼った動物は
-      // 隠れ場所ごとに倍率が違うので、ここで戻すと毎フレーム元の大きさに縮む
-      built.group.scale.setScalar(slot.fitScale * (1 + OVERSHOOT * spot.pulse));
+      // 隠れ場所ごとに倍率が違うので、ここで戻すと毎フレーム元の大きさに縮む。
+      //
+      // §6-1 の「大きさが ±10% ばらつく」は `sizeVar` を `reveal` で掛ける。
+      // **隠れているあいだ（reveal = 0）は必ず 1 倍。**
+      // ここを常時掛けると、大きく出た回に隠れ場所へ収まらなくなる（§4-2）
+      const sizeVar = 1 + (spot.sizeVar - 1) * spot.reveal;
+      built.group.scale.setScalar(slot.fitScale * sizeVar * (1 + OVERSHOOT * spot.pulse));
 
       // --- ヒント（§4-2） ----------------------------------------------------
       // 出はじめたら引っ込める。頭の上に尻尾が残っていたら、ただの飾りになる。

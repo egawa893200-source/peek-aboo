@@ -70,6 +70,9 @@ import {
   CALL_DECAY_SEC,
   CHASE_OUT_IDLE_SEC,
   PEAK_AT_SEC,
+  SIZE_VAR,
+  SPEED_VAR,
+  VOICE_VAR,
   SpotSystem,
   type SpotHitTester,
   type SpotRuntime,
@@ -1366,6 +1369,112 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
           `${id}: ${spots.runtimes[i].config.id}-${spots.runtimes[j].config.id}`
         ).toBeLessThan(d);
       }
+    }
+  });
+});
+
+describe('§6-1 毎回変わるもの（速さ・大きさ・声）', () => {
+  /** ばらつきの乱数を固定した SpotSystem。**共有の乱数に相乗りしない**（§6-1） */
+  const seeded = (seed: number) => new SpotSystem(OUCHI.spots, undefined, seed);
+
+  it('登場の速さは回ごとに変わる（±10% を超えない）', () => {
+    const spots = seeded(12345);
+    const spot = spots.runtimes[0];
+    const seen = new Set<number>();
+
+    // 出る → 引っ込む を繰り返して、そのたびの speedVar を集める
+    for (let i = 0; i < 40; i++) {
+      spots.tap(spot);
+      seen.add(spot.speedVar);
+      expect(spot.speedVar).toBeGreaterThanOrEqual(1 - SPEED_VAR);
+      expect(spot.speedVar).toBeLessThanOrEqual(1 + SPEED_VAR);
+      // 次のタップまで、いったん hidden に戻す
+      for (let f = 0; f < 60 * 4; f++) spots.update(DT);
+      expect(spot.state).toBe('hidden');
+    }
+
+    // 「毎回変わる」が効いていること。同じ値ばかりなら §6-1 は死んでいる
+    expect(seen.size).toBeGreaterThanOrEqual(30);
+  });
+
+  it('速さが変わっても、山（§4-3 の 0.50s）は必ず同じ時刻に来る', () => {
+    // **これが §6-1 のいちばん危ないところ。**
+    // 速さをそのまま伸ばすと、登場が 0.35秒 を超えて不変条件4 が壊れ、
+    // §4-5 の 1周 4.80s もその回ごとにずれる（実際に安全テスト5件が落ちた）。
+    // 速くなったぶんは ため を伸ばして吸収する。
+    const frames: number[] = [];
+    for (let seed = 1; seed <= 60; seed++) {
+      const spots = seeded(seed);
+      const spot = spots.runtimes[0];
+      spots.tap(spot);
+      let at = Infinity;
+      for (let f = 0; f < 60; f++) {
+        spots.update(DT);
+        if (at === Infinity && spot.reveal >= 1) at = f + 1;
+      }
+      frames.push(at);
+    }
+
+    const peakFrames = Math.round(PEAK_AT_SEC / DT);
+    for (const f of frames) expect(f).toBe(peakFrames);
+  });
+
+  it('ため の無い呼び戻しでは、遅い側に振らない（不変条件4）', () => {
+    // `hiding` → `appearing` は ため を挟まないので、吸収先が無い。
+    // ここで遅い側に振ると、そのぶん登場が 0.35秒 を超える
+    for (let seed = 1; seed <= 60; seed++) {
+      const spots = seeded(seed);
+      const spot = spots.runtimes[0];
+      spots.tap(spot);
+      // out を過ぎて hiding の途中まで進める
+      for (let f = 0; f < 60 * 3; f++) {
+        spots.update(DT);
+        if (spot.state === 'hiding') break;
+      }
+      for (let f = 0; f < 6; f++) spots.update(DT);
+      expect(spot.state).toBe('hiding');
+
+      spots.tap(spot);
+      expect(spot.speedVar).toBeLessThanOrEqual(1);
+      expect(spot.speedVar).toBeGreaterThanOrEqual(1 - SPEED_VAR);
+    }
+  });
+
+  it('大きさのばらつきは、隠れているあいだ効かない（§4-2）', () => {
+    // 隠れているときの見え方は不変条件3 が数値で押さえてある。
+    // そこに ±10% を掛けると、はみ出し量がその回ごとに変わって
+    // 「見えている」の判定が運任せになる
+    const { spots, animals, camera, advance } = rig();
+    const spot = spots.runtimes[0];
+    const slot = animals.getSlot(spot.config.id);
+    expect(slot).not.toBeNull();
+    if (!slot) return;
+
+    animals.update(DT, spots, camera);
+    expect(slot.built.group.scale.x).toBeCloseTo(slot.fitScale, 10);
+
+    spots.tap(spot);
+    // 山の直後は §4-4 のオーバーシュート（1.15倍）が乗っているので、
+    // 落ち着く（`POP_SETTLE_SEC` 0.22s）まで待ってから測る
+    advance(PEAK_AT_SEC + 0.3);
+    const out = slot.built.group.scale.x / slot.fitScale;
+    expect(out).toBeGreaterThanOrEqual(1 - SIZE_VAR - 1e-6);
+    expect(out).toBeLessThanOrEqual(1 + SIZE_VAR + 1e-6);
+
+    // 引っ込みきったら、また 1倍に戻っている
+    advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.2);
+    expect(spot.state).toBe('hidden');
+    expect(slot.built.group.scale.x).toBeCloseTo(slot.fitScale, 10);
+  });
+
+  it('声のピッチは ±5% を超えない（別人の声にしない）', () => {
+    const spots = seeded(777);
+    const spot = spots.runtimes[0];
+    for (let i = 0; i < 40; i++) {
+      spots.tap(spot);
+      expect(spot.voiceVar).toBeGreaterThanOrEqual(1 - VOICE_VAR);
+      expect(spot.voiceVar).toBeLessThanOrEqual(1 + VOICE_VAR);
+      for (let f = 0; f < 60 * 4; f++) spots.update(DT);
     }
   });
 });

@@ -150,7 +150,8 @@ export class App {
       // **`speak()` ではなく `playVoice()` を使うこと。**
       // `speak()` は読み上げ用の入口で最短間隔 1.25秒 の制限があり、
       // 続けて別の隠れ場所を押すと声が落ちて「ばあっ！が返らない回」ができる。
-      next.spots.onVoice(() => this.audio.playVoice('baa'));
+      // §6-1: 声のピッチを ±5% 振る。毎回まったく同じ声にしない
+      next.spots.onVoice((spot) => this.audio.playVoice('baa', spot.voiceVar));
       next.spots.onPeak((spot) => this.onPeak(next, spot));
       // §6-3。絵が無い動物は出さない（不変条件7）
       this.surprise.setTextures(next.cutouts);

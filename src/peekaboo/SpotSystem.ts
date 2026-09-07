@@ -37,6 +37,35 @@ import { createSpotShape, type SpotShape } from './SpotShapes';
 export const APPEAR_DELAY_SEC = 0.15;
 /** 出はじめてから出きるまで（§4-3 の 0.15s → 0.50s） */
 export const APPEAR_DUR_SEC = 0.35;
+
+/* --- §6-1「毎回変わるもの（小）」。同じ動きの繰り返しに見せない ------------ */
+
+/**
+ * 登場の速さのばらつき（±この割合）。
+ *
+ * **「ため＋登場」の合計は振らない。** 速くなったぶんだけ ため を伸ばし、
+ * 遅くなったぶんだけ ため を縮めて、山（§4-3 の 0.50s）は必ず同じ時刻に来る。
+ * 速さをそのまま振って合計を伸ばすと、§4-3 の 0.50s と §4-5 の 1周 4.80s が
+ * その回ごとにずれる（実際に安全テスト5件が落ちた）。
+ * ため が無い呼び戻し（`hiding` → `appearing`）では吸収先が無いので、
+ * **速くなる側にしか振らない**（`rollVariation` の `absorbDelay`）。
+ */
+export const SPEED_VAR = 0.1;
+/** 大きさのばらつき（±この割合）。**隠れているあいだは効かせない**（§4-2） */
+export const SIZE_VAR = 0.1;
+/** 声のピッチのばらつき（±この割合）。これ以上振ると別人の声になる */
+export const VOICE_VAR = 0.05;
+
+/** §6-1 のばらつき用の乱数。**共有の乱数列に相乗りしない**（上の理由） */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 /**
  * 出たまま待つ時間（§4-3。みずのなかの `OUT_IDLE_SEC` 実績値）。
  * 短いと見る前に消える。長いと「隠れている」に戻らず次が押せない。
@@ -51,6 +80,9 @@ export const HIDE_DUR_SEC = 0.5;
  * §4-5 の表では 0.50s に出きって 1.70s に idle が終わるので、ちょうど 1.2秒。
  */
 export const CHASE_OUT_IDLE_SEC = 1.2;
+
+/** `reveal` を 1 とみなす幅（浮動小数の誤差ぶん。上の `step` の説明を参照） */
+const REVEAL_EPS = 1e-6;
 
 /** 登場の山（不変条件4「登場は 0.35秒以内に始まる」の判定に使う） */
 export const PEAK_AT_SEC = APPEAR_DELAY_SEC + APPEAR_DUR_SEC;
@@ -117,6 +149,21 @@ export interface SpotRuntime {
   reveal: number;
   /** §4-4 のオーバーシュート 0..1 */
   pulse: number;
+  /**
+   * この登場だけの速さの倍率（§6-1「登場の速さが ±10% ばらつく」）。
+   * **`appearing` に入るたびに引き直す。** 1 より大きいと遅い。
+   * 開始の遅れ（`APPEAR_DELAY_SEC`）は振らない。不変条件4
+   * 「登場は 0.35秒以内に始まる」を毎回きっちり守るため
+   */
+  speedVar: number;
+  /**
+   * この登場だけの大きさの倍率（§6-1「大きさが ±10% ばらつく」）。
+   * **隠れているあいだは効かせない**（`reveal` を掛けてある）。
+   * 効かせると隠れ場所に収まらなくなる回ができる（§4-2）
+   */
+  sizeVar: number;
+  /** この登場だけの声の速さ（§6-1「声のピッチが ±5%」） */
+  voiceVar: number;
   /** ため の残り秒 */
   delay: number;
   /** `out` でいる残り秒 */
@@ -179,6 +226,13 @@ export class SpotSystem {
   private readonly openFns: SpotEvent[] = [];
   private readonly hiddenFns: SpotEvent[] = [];
 
+  /**
+   * §6-1 のばらつき用。**独立した種から引く。**
+   * three の `generateUUID()` が `Math.random()` を消費するので、
+   * 共有の乱数列に相乗りすると、モデルを1つ足しただけで見た目が変わる
+   */
+  private readonly rng: () => number;
+
   /** 応答を返したタップの総数。**タップ総数と必ず一致すること**（不変条件1） */
   private responses = 0;
 
@@ -188,8 +242,10 @@ export class SpotSystem {
    */
   constructor(
     spots: readonly SpotConfig[],
-    readonly mode: SceneMode = 'hideout'
+    readonly mode: SceneMode = 'hideout',
+    variationSeed?: number
   ) {
+    this.rng = mulberry32(variationSeed ?? ((Date.now() ^ 0x27d4eb2f) >>> 0));
     spots.forEach((config, i) => {
       const shape = createSpotShape(config.kind);
       const group = new THREE.Group();
@@ -206,6 +262,9 @@ export class SpotSystem {
         state: 'hidden',
         reveal: 0,
         pulse: 0,
+        speedVar: 1,
+        sizeVar: 1,
+        voiceVar: 1,
         delay: 0,
         idle: 0,
         shake: 0,
@@ -319,7 +378,9 @@ export class SpotSystem {
     switch (spot.state) {
       case 'hidden':
         spot.state = 'appearing';
-        spot.delay = APPEAR_DELAY_SEC;
+        this.rollVariation(spot, true);
+        // 速さのぶんを ため で吸収する（山は必ず PEAK_AT_SEC）
+        spot.delay = PEAK_AT_SEC - APPEAR_DUR_SEC * spot.speedVar;
         // 声は山で。ここで鳴らすと「ばあ」ではなくただのボタンになる（§4-3）
         break;
       case 'hiding':
@@ -327,6 +388,7 @@ export class SpotSystem {
         // ここで 0.15秒待たせると「もう一回！」への反応が鈍く感じる
         spot.state = 'appearing';
         spot.delay = 0;
+        this.rollVariation(spot, false);
         this.emit(this.voiceFns, spot);
         break;
       case 'appearing':
@@ -355,12 +417,22 @@ export class SpotSystem {
   private step(s: SpotRuntime, dt: number): void {
     switch (s.state) {
       case 'appearing': {
+        // ため の残りを引いた**余りを同じフレームで登場に回す**。
+        // ここで break して1フレーム丸ごと捨てると、ため が 1/60 の倍数で
+        // ないとき（§6-1 で速さを振ると必ずそうなる）に山が最大2フレーム遅れる
+        let step = dt;
         if (s.delay > 0) {
-          s.delay = Math.max(0, s.delay - dt);
-          break;
+          const used = Math.min(s.delay, step);
+          s.delay -= used;
+          step -= used;
+          if (step <= 0) break;
         }
-        s.reveal += dt / APPEAR_DUR_SEC;
-        if (s.reveal >= 1) {
+        // §6-1: この登場だけ速さが ±10% 変わる（`speedVar`）
+        s.reveal += step / (APPEAR_DUR_SEC * s.speedVar);
+        // **1 との比較に幅を持たせる。** ため＋登場はちょうど 0.50s＝30フレームで、
+        // 浮動小数の誤差で 0.9999999999 に落ちるだけで山が1フレーム遅れる
+        // （§6-1 を入れて ため が 1/60 の倍数でなくなってから実際に出た）
+        if (s.reveal >= 1 - REVEAL_EPS) {
           s.reveal = 1;
           s.state = 'out';
           s.idle = this.outIdleSec();
@@ -559,6 +631,22 @@ export class SpotSystem {
     this.openFns.length = 0;
     this.hiddenFns.length = 0;
     this.group.removeFromParent();
+  }
+
+  /**
+   * この登場ぶんのばらつきを引く（§6-1）。
+   *
+   * **`Math.random()` を使わない。** three は `generateUUID()` で
+   * 1オブジェクトにつき 4回 消費するので、共有の乱数列に相乗りすると
+   * モデルを1つ足しただけで見た目が変わる（みずのなかの実測）。
+   */
+  private rollVariation(spot: SpotRuntime, absorbDelay: boolean): void {
+    const speed = 1 + (this.rng() * 2 - 1) * SPEED_VAR;
+    // ため で吸収できないときは「同じか速い」だけ。遅い側に振ると
+    // 登場が 0.35秒 を超える（不変条件4）
+    spot.speedVar = absorbDelay ? speed : Math.min(1, speed);
+    spot.sizeVar = 1 + (this.rng() * 2 - 1) * SIZE_VAR;
+    spot.voiceVar = 1 + (this.rng() * 2 - 1) * VOICE_VAR;
   }
 
   private emit(fns: readonly SpotEvent[], spot: SpotRuntime): void {
