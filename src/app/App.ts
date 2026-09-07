@@ -29,6 +29,7 @@ import { QualityManager } from '../core/QualityManager';
 import { Renderer } from '../core/Renderer';
 import { ScreenProjector } from '../core/ScreenProjector';
 import { WakeLock } from '../core/WakeLock';
+import { LIGHTS } from '../data/look';
 import { DEFAULT_SCENE_ID, findScene, SCENES } from '../data/scenes';
 import type { SpotRuntime, SpotSnapshot } from '../peekaboo/SpotSystem';
 import { Surprise } from '../peekaboo/Surprise';
@@ -90,12 +91,13 @@ export class App {
       // TODO(Phase 8): 設定パネルを開く。
     });
 
-    // 上からの光ひとつだけ。
+    // 光。**数値は `data/look.ts` に外出ししてある**（見た目の調整は
+    // 「1つ変えて撮って測る」を繰り返すので、値が散らばると追えなくなる）。
     // **顔と目が見えることが最重要**（§4-4）なので、真上ではなく少し手前から当てる。
-    const key = new THREE.DirectionalLight(0xfff3e2, 1.6);
-    key.position.set(0.4, 1.2, 1.0);
+    const key = new THREE.DirectionalLight(LIGHTS.key.color, LIGHTS.key.intensity);
+    key.position.set(...LIGHTS.key.position);
     this.scene.add(key);
-    this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x4a4436, 1.1));
+    this.scene.add(new THREE.HemisphereLight(LIGHTS.hemi.sky, LIGHTS.hemi.ground, LIGHTS.hemi.intensity));
 
     // §6-3 のサプライズは**カメラの子**にする。カメラ空間に置けば、
     // 画面のどこにどれだけの大きさで出るかが素直に決まる。

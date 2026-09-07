@@ -28,6 +28,7 @@
 
 import * as THREE from 'three';
 
+import { FORM_SHADING } from '../data/look';
 import type { SpotKind } from '../types';
 
 /**
@@ -209,6 +210,75 @@ function plate(
  * データの打ち間違いで隠れ場所が1つ消えると、そこは「押しても無反応」になる。
  */
 export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape {
+  const shape = buildSpotShape(kind, spotY, spotX);
+  applyFormShading(shape.group);
+  return shape;
+}
+
+/** 使い捨て。**毎フレーム走る道ではない**が、作法をそろえておく（§10-3） */
+const _shadeBox = new THREE.Box3();
+const _shadeVec = new THREE.Vector3();
+
+/**
+ * 隠れ場所ぜんぶに、頂点カラーで陰影を焼き込む。
+ *
+ * ==========================================================================
+ * **光を足しても、平らな面の明るさは一様のまま。**
+ * 平行光も半球光も法線しか見ないので、1枚の板の上ではどこも同じ明るさになる。
+ * 点光源なら距離で変わるが、面1枚の中では数%しか動かない（実測で見積もると
+ * とびら1枚の端から端で 33%、そのうち画面の明度に出るのは 10% 前後）。
+ *
+ * baseline の実測（`capture/visual/baseline/score.json`）:
+ * はこ・カーテン・ふとん・すいめん・こや の内部の L\* の四分位範囲が
+ * **0.00〜0.35**。面の境目でしか明るさが変わっていない＝「のっぺり」の正体。
+ *
+ * だから**絵の描き手と同じことをする**。上を明るく下を暗く、奥ほど暗く。
+ * 値は `data/look.ts`。
+ *
+ * **隠れ場所ぜんぶを1つの箱として測ってから塗ること。**
+ * メッシュごとに測ると、たまごの殻とふたのように「1つの形を2つに割ったもの」で
+ * 傾きが割れ目でリセットされ、そこに段差が出る。
+ * ==========================================================================
+ */
+function applyFormShading(group: THREE.Group): void {
+  group.updateMatrixWorld(true);
+  _shadeBox.setFromObject(group);
+  const minY = _shadeBox.min.y;
+  const minZ = _shadeBox.min.z;
+  const spanY = Math.max(1e-6, _shadeBox.max.y - minY);
+  const spanZ = Math.max(1e-6, _shadeBox.max.z - minZ);
+
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const geometry = mesh.geometry;
+    const position = geometry.getAttribute('position');
+    if (!position) return;
+
+    const colors = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      _shadeVec.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+      const up = (_shadeVec.y - minY) / spanY;
+      const front = (_shadeVec.z - minZ) / spanZ;
+      // 上を明るく下を暗く（中央が 1.0）。奥ほど暗く
+      const shade = (1 + FORM_SHADING.lift * (up - 0.5)) * (1 - FORM_SHADING.depth * (1 - front));
+      colors[i * 3] = shade;
+      colors[i * 3 + 1] = shade;
+      colors[i * 3 + 2] = shade;
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    // **同じ material を使う板が1枚でも color を持たないと、そこが黒くなる。**
+    // だから「全メッシュに塗る」ここでまとめて立てる
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      (material as THREE.MeshStandardMaterial).vertexColors = true;
+      material.needsUpdate = true;
+    }
+  });
+}
+
+function buildSpotShape(kind: SpotKind, spotY: number, spotX: number): SpotShape {
   const palette = PALETTES[kind] ?? PALETTES.box;
   switch (kind) {
     case 'curtain':

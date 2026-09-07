@@ -331,6 +331,7 @@ async function main() {
     }
   }
 
+  const regressions = [];
   if (prev) {
     console.log('\nbaseline との差（! は悪化）');
     for (const id of shot.scenes) {
@@ -341,7 +342,14 @@ async function main() {
         const cells = keys.map((k) => {
           const d = s[k] - b[k];
           // 悪化 = 基準から遠ざかった向き
+          // 悪化 = 基準から遠ざかった向き。**基準を満たしたまま動いたぶんは数えない**
+          // （満たしている項目の中での上下は、見た目の良し悪しを表していない）
           const worse = shortfall(k, s[k]) > shortfall(k, b[k]) + 1e-9;
+          if (worse) {
+            regressions.push(
+              `${id}/${s.spot} ${k.toUpperCase()} ${b[k]} → ${s[k]}（${GATE[k].label}）`
+            );
+          }
           return `${worse ? '!' : ' '}${(d >= 0 ? '+' : '') + d.toFixed(2).padStart(6)}`;
         });
         console.log(`${id.padEnd(10)}${String(s.spot).padEnd(10)}` + cells.join(''));
@@ -350,6 +358,10 @@ async function main() {
   }
 
   await writeFile(resolve(dir, 'score.json'), JSON.stringify(out, null, 2) + '\n', 'utf8');
+  if (prev) {
+    console.log(`\n悪化した項目: ${regressions.length} 件`);
+    for (const r of regressions) console.log(`  ${r}`);
+  }
   console.log(`\n基準を外れた項目: ${failures.length} 件`);
   for (const f of failures) console.log(`  ${f}`);
   console.log(`→ capture/visual/${args.dir}/score.json`);
