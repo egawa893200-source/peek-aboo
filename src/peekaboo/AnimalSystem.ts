@@ -62,9 +62,11 @@ const FIT_WIDTH = 0.86;
  * （2026-09-07 の実測。絵を貼った動物でだけ起きる。手続き生成の体は
  * 細いので届いていなかった）。`coverBottomY` は「板の下端」だが、
  * 板の形によっては、そこまでびっしり覆えていない。
- * 0.06 でも1箇所残り、0.10 で全部の場面が漏れなしになった
+ * 0.06 でも1箇所残り、0.10 で全部の場面が漏れなしになった。
+ * 隠れ場所を大きくした（2026-09-07）あと、きょうりゅうの しだ と
+ * どうぶつえんの たかき で1点ずつ残ったので 0.20 まで上げた
  */
-const FIT_MARGIN = 0.1;
+const FIT_MARGIN = 0.2;
 /** 出きった動物と、上の隠れ場所の下端とのすき間 */
 const CEILING_CLEAR = 0.08;
 /**
@@ -110,6 +112,17 @@ const GAZE_FROM = 0.72;
 const _camPos = new THREE.Vector3();
 const _headPos = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+/**
+ * 画面の上端（ワールド）。
+ *
+ * **`0.3 + tan(33°) × 7.2 = 5.0` ではない。**
+ * カメラは (0, 0.3, 7.2) から原点を見ているので 2.4° 下を向いていて、
+ * そのぶん上に見える範囲が狭い。実測（見かけの座標が ±1 に収まる上限）で
+ * 4.3。端末のアスペクトで少し変わるので、ここからさらに余白を取っている。
+ * **隠れ場所を上げた（2026-09-07）とき、上の段の ぞう が頭を切られた。**
+ */
+const SCREEN_TOP_Y = 4.3;
+
 const _box = new THREE.Box3();
 
 export interface AnimalSlot {
@@ -329,7 +342,10 @@ export class AnimalSystem {
    * 横に離れている隠れ場所は数えない（重ならないため）。
    */
   private ceilingFor(spot: SpotRuntime): number {
-    let ceiling = Infinity;
+    // **画面の上からも出さない。**
+    // 隠れ場所を上げた（2026-09-07）ら、上の段の ぞう が頭を切られた。
+    // 上に隠れ場所が無い段には、これだけが効く
+    let ceiling = SCREEN_TOP_Y;
     for (const other of this.spots.runtimes) {
       if (other === spot) continue;
       if (other.worldPosition.y <= spot.worldPosition.y) continue;
@@ -377,11 +393,14 @@ export class AnimalSystem {
     // （`config.scale` は沈める深さを知らないので、深くしたぶん下から出た）
     const room = spot.shape.coverTopY - spot.shape.coverBottomY - HIDDEN_SINK - EXTRA_SINK - FIT_MARGIN;
     const byHeight = room / slot.built.height;
+    const byWidth = (spot.shape.mouthWidth * FIT_WIDTH) / slot.built.width;
     if (slot.built.autoFit) {
-      const byWidth = (spot.shape.mouthWidth * FIT_WIDTH) / slot.built.width;
       slot.fitScale = Math.max(0.2, Math.min(byWidth, byHeight));
     } else {
-      slot.fitScale = Math.max(0.2, Math.min(slot.fitScale, byHeight));
+      // **手続き生成にも幅の上限を掛ける**（縮める側にしか動かない）。
+      // 掛けていなかったので、隠れ場所を大きくしたあと どうぶつえん の
+      // たかき で、体の左下が くさむら の外に出ていた（1点）
+      slot.fitScale = Math.max(0.2, Math.min(slot.fitScale, byHeight, byWidth));
     }
     // **上の隠れ場所にぶつからないところまで縮める**（2026-09-07 の実測）。
     // 出きった動物は縁より `height * OUT_LIFT` 上に出る。絵を隠れ場所いっぱいに
@@ -407,6 +426,18 @@ export class AnimalSystem {
     // 縁から出る量（§4-2 の 15〜25%）は、沈める深さと独立でなければならない。
     // `HIDDEN_SINK`（0.06）は §4-2 の実測に使った基準なので動かさず、
     // それを超えて沈めたぶん（`EXTRA_SINK`）だけ戻す
+    // **縁から出る量が、動物の大きさによらず同じになるようにする。**
+    //
+    // 見えている量は `ヒントの高さ × scale − HIDDEN_SINK` になる。
+    // 沈める深さは絶対値（見下ろす角度で決まる）なので、**小さい動物ほど
+    // 沈みぶんが効いて、はみ出しが減る**。実測（2026-09-07、隠れ場所を
+    // 大きくしたあと）: 大きい絵は 0.225、小さい手続き生成は 0.127 まで開いた。
+    // §4-2 の band（15〜25%）に全部を収めるには、この差を消すしかない。
+    // ヒントの側を `HIDDEN_SINK / scale` ぶん伸ばせば、見えている量は
+    // つねに `HINT_EXPOSURE × 体長` になる
+    const wantHint = EXPECTED_HINT_EXPOSURE * slot.built.height + HIDDEN_SINK / scale;
+    const baseHint = EXPECTED_HINT_EXPOSURE * slot.built.height;
+    slot.built.hint.scale.setScalar(baseHint > 0 ? wantHint / baseHint : 1);
     slot.built.hint.position.y = slot.built.height + EXTRA_SINK / scale;
     // 出きった位置。少しだけ縁に埋めておくと「そこから出てきた」に見える
     slot.outY = slot.coverTopY - h * (1 - OUT_LIFT);

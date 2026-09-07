@@ -256,7 +256,7 @@ export class SpotSystem {
   ) {
     this.rng = mulberry32(variationSeed ?? ((Date.now() ^ 0x27d4eb2f) >>> 0));
     spots.forEach((config, i) => {
-      const shape = createSpotShape(config.kind);
+      const shape = createSpotShape(config.kind, config.position[1]);
       const group = new THREE.Group();
       group.position.fromArray(config.position);
       group.scale.setScalar(config.scale);
@@ -315,7 +315,7 @@ export class SpotSystem {
     if (spot.shapeKind === kind || spot.state !== 'hidden') return false;
     spot.group.remove(spot.shape.group);
     spot.shape.dispose();
-    spot.shape = createSpotShape(kind);
+    spot.shape = createSpotShape(kind, spot.config.position[1]);
     spot.shapeKind = kind;
     spot.group.add(spot.shape.group);
     // 閉じた状態から始める。**開き具合を引き継がない**

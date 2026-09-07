@@ -47,7 +47,15 @@ import { disposeObject3D } from './SpotShapes';
  * **上げすぎないこと。** ヒントの先端（鼻先・足）は少しはみ出すので、
  * 0.30 にすると小さい動物で 25% を超える。
  */
-export const HINT_EXPOSURE = 0.27;
+/**
+ * ヒントの高さ（体長に対する割合）。
+ *
+ * §4-2 は「体長の 15〜25% が縁から見えている」。
+ * `AnimalSystem.anchor()` が沈めたぶんをヒント側で伸ばすので、
+ * **実際に見える割合は動物の大きさによらずこの値になる**
+ * （ヒントの形ごとに ±5% ほどぶれるので、band の真ん中に置いてある）
+ */
+export const HINT_EXPOSURE = 0.21;
 
 export interface ProceduralAnimal {
   readonly group: THREE.Group;

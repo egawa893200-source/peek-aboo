@@ -125,8 +125,8 @@ export interface SpotShape {
  * 当たり半径（実効 111px）より見た目が小さいと、縁を押しても反応するので
  * 「押した場所と反応した場所がずれている」ようには見えない。
  * ---------------------------------------------------------------------- */
-const W = 1.35;
-const H = 1.05;
+const W = 1.7;
+const H = 1.35;
 const D = 0.5;
 const HALF_W = W / 2;
 const HALF_H = H / 2;
@@ -208,7 +208,7 @@ function plate(
  * **未知の `kind` でも必ず何かを返す**（不変条件1／7）。
  * データの打ち間違いで隠れ場所が1つ消えると、そこは「押しても無反応」になる。
  */
-export function createSpotShape(kind: SpotKind): SpotShape {
+export function createSpotShape(kind: SpotKind, spotY = 0): SpotShape {
   const palette = PALETTES[kind] ?? PALETTES.box;
   switch (kind) {
     case 'curtain':
@@ -220,7 +220,7 @@ export function createSpotShape(kind: SpotKind): SpotShape {
     case 'bush':
       return createBush(palette);
     case 'rock':
-      return createRock(palette);
+      return createRock(palette, spotY);
     case 'water':
       return createWater(palette);
     case 'hollow':
@@ -500,6 +500,20 @@ function createBush(p: Palette): SpotShape {
   skirt.position.set(0, -H * 0.62, FRONT_Z + 0.05);
   group.add(skirt);
 
+  // 中央の板。**開いても動かない。**
+  // 球を並べただけでは、房と株のあいだに斜めから抜ける隙間が残る
+  // （隠れ場所を大きくした 2026-09-07 に、どうぶつえん の たかき で
+  //  局所 y = −0.54 に 1点だけ出た）。CLAUDE.md の
+  // 「球だけで隠れ場所を作ると必ず隙間ができる。平らな板を1枚重ねて塞ぐ」。
+  // **上端は縁ちょうど**なので、出てきた動物は隠さない
+  // 上端は縁より 0.25 下。縁ちょうどまで伸ばした版は、出たあとの癖
+  // （§6-2 の傾き）で振れた体の下側を隠して、見えている割合が 49% まで
+  // 落ちた（判定は 55%）。隙間は縁のずっと下（局所 −0.54）なので、ここで足りる
+  const frontTop = HALF_H - 0.25;
+  group.add(
+    plate('bush.front', W * 0.66, frontTop + H * 0.75, PLATE, leaf, 0, (frontTop - H * 0.75) / 2, FRONT_Z - 0.01)
+  );
+
   // 上に伸びる草。ヒント（うさぎの耳）と混ざらないよう、細く短くする
   for (let i = 0; i < 5; i++) {
     const blade = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.3 + (i % 3) * 0.07, 6), deep);
@@ -513,7 +527,10 @@ function createBush(p: Palette): SpotShape {
   // 開ききったときの内側の端は ±0.37 で、いちばん幅のある動物（うさぎ 0.31）が通る。
   // **0.42 まで開けると、画面端の草むらが横にはみ出して切れる**
   // （Pixel 7 縦の画面半幅 2.30 に対して 2.40 まで届いていた）
-  const openX = W * 0.34;
+  // 開いたときに半分が逃げる距離。
+  // **隠れ場所を大きくした（2026-09-07）ぶん、比率のままでは足りない。**
+  // 出きった動物の見えている割合が 53% まで落ちた（判定は 55%）
+  const openX = W * 0.42;
 
   return {
     group,
@@ -541,6 +558,30 @@ function createBush(p: Palette): SpotShape {
   };
 }
 
+/**
+ * 庇（ひさし）を、見込み角のぶんだけずらす量。
+ *
+ * ==========================================================================
+ * **「縁の高さ」ではなく「縁に見える高さ」に置く。**
+ *
+ * カメラは (0, 0.3, 7.2) に固定。上の段（y = +2.45）は見上げる形になるので、
+ * 手前（z = 0.20）にある板の上端は縁より**高く**見え、出てきた動物の
+ * 下半分を隠す（実測で見えている割合が 53% まで落ちた。判定は 55%）。
+ * 下の段（y = −1.95）は逆で、見下ろすぶん上端が縁より**低く**見え、
+ * 隠れている体が縁の上から覗く（さく で 1点）。
+ *
+ * 上下で符号が変わるので、隠れ場所の高さから計算する。
+ * ==========================================================================
+ */
+function browShift(spotY: number): number {
+  const CAM_Y = 0.3;
+  const CAM_Z = 7.2;
+  const BROW_Z = FRONT_Z - 0.02;
+  /** 庇と、その裏に居る体との奥行きの差 */
+  const DEPTH = 0.25;
+  return (DEPTH * (spotY + HALF_H - CAM_Y)) / (CAM_Z - BROW_Z);
+}
+
 /* --- いわ ------------------------------------------------------------------ */
 
 /**
@@ -549,7 +590,7 @@ function createBush(p: Palette): SpotShape {
  * くさむらと同じで**中央に隙間を残さない**。
  * 深さも同じだけ取ってある（背の高い動物が入るため。`coverBottomY` の注記）。
  */
-function createRock(p: Palette): SpotShape {
+function createRock(p: Palette, spotY: number): SpotShape {
   const group = new THREE.Group();
   const stone = standard(p.cover, 0.95);
 
@@ -605,7 +646,23 @@ function createRock(p: Palette): SpotShape {
   // 動く半分に平らな板を足しても、開いたときに一緒に逃げてしまい、
   // 今度は出てきた体を隠してしまう。**縁のすぐ下だけを固定で覆う**のが正解。
   // 上端は coverTopY ちょうど。ヒント（z = 0.36）はこの板より手前を通る
-  const brow = plate('rock.brow', W + 0.05, HALF_H * 0.43, 0.24, stone, 0, HALF_H * 0.785, FRONT_Z - 0.02);
+  //
+  // **上端は「縁の高さ」ではなく「縁に見える高さ」に置く。**
+  // 上の段（y = +2.45）はカメラ（y = 0.3）より上にあるので見上げる形になり、
+  // 手前（z = 0.20）にある板の上端は、縁より高い位置に見える。
+  // 上端をちょうど縁に合わせた版では、出てきた動物の下半分が庇に隠れて
+  // 見えている割合が 53% まで落ちた（判定は 55%）。
+  // 見込み角ぶん（0.10）下げる
+  const brow = plate(
+    'rock.brow',
+    W + 0.05,
+    HALF_H * 0.43,
+    0.24,
+    stone,
+    0,
+    HALF_H * 0.785 - browShift(spotY),
+    FRONT_Z - 0.02
+  );
   group.add(brow);
 
   const openX = W * 0.36;
@@ -807,7 +864,11 @@ function createPot(p: Palette): SpotShape {
     coverTopY: HALF_H,
     // 鉢の底まで。動物の足は鉢の中に隠れる
     coverBottomY: -H * 0.55 - H * 0.43,
-    mouthWidth: W - 0.2,
+    // **葉が実際に覆っている幅にする。**
+    // `W - 0.2` は鉢の口の幅で、葉はそこまで届いていない。
+    // 隠れ場所を大きくした（2026-09-07）とき、そのぶん動物も大きくなって
+    // 葉の外へ体がはみ出した（そと の はち で 6点、きょうりゅう の たまご で 2点）
+    mouthWidth: W * 0.76,
     animalZ: ANIMAL_Z,
     hintZ: HINT_Z,
     setOpen(t) {
@@ -853,40 +914,52 @@ function createEgg(p: Palette): SpotShape {
   const CRACK_Y = HALF_H;
   /** 下半分の深さ。ほかの隠れ場所と同じくらいの「部屋」を作る */
   const LOWER = 1.575;
-  const RZ = D * 0.5;
+  const RZ = D * 0.36;
 
-  // 殻の下半分。
+  // 殻の下半分。**これが前板を兼ねる。**
   //
-  // **縁の高さで前に張り出させないこと。**
-  // 下半球を縁に合わせて置いた版は、いちばん太いところ（＝赤道）が
-  // ちょうど縁に来て、出てきた動物の前に殻が掛かった
-  // （体の見えている割合が 68% → 判定は 55% ぎりぎり、こやで 18点が殻に当たった）。
-  // 楕円体を**縁より下に沈めて**置くと、縁のあたりでは細くなるので前に出ない。
-  // 縁の近くを塞ぐのは下の前板（`egg.front`）の仕事
-  const lower = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), standard(p.body, 0.9));
+  // はじめは「奥に沈めた楕円体 ＋ 四角い前板」で作ったが、実機で
+  // 「たまごの前にドアがあって変わらず見づらい」と言われた（2026-09-07）。
+  // 四角い板の角が、殻とは別のものに見えていた。
+  //
+  // **横に広く、奥行きは薄く。** 下半球を縁に合わせて置くと、
+  // いちばん太いところ（赤道）が縁に来るので、横は開口部を覆いきり、
+  // 奥行きは薄いので出てきた動物の前に張り出さない
+  // （厚い版では殻が動物に掛かって、見えている割合が 68% まで落ちた）。
+  // 前面の z は、ほかの隠れ場所の前板と同じ 0.22 にそろえてある
+  const lower = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+    standard(p.body, 0.9)
+  );
   lower.name = 'egg.lower';
-  lower.scale.set(RX, LOWER * 0.52, RZ);
-  lower.position.set(0, CRACK_Y - LOWER * 0.52, 0.0);
+  lower.scale.set(RX, LOWER, RZ);
+  lower.position.set(0, CRACK_Y, FRONT_Z - RZ);
   group.add(lower);
 
-  // 前板。球のすぼまりで残る隙間を塞ぐ（CLAUDE.md の実測）
-  group.add(
-    plate('egg.front', RX * 1.72, LOWER * 0.92, PLATE, standard(p.body, 0.9), 0, CRACK_Y - LOWER * 0.46, FRONT_Z + 0.02)
+  // 背板。奥からの抜けを塞ぐ。
+  //
+  // **四角い板にしないこと。** 殻からはみ出した角が「たまごの後ろに
+  // 板が置いてある」ように見えた（2026-09-07 に実機で指摘）。
+  // 殻と同じ形（下半分の楕円）を、ひとまわり小さく作って隠す
+  const back = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 20, Math.PI, Math.PI),
+    standard(p.body, 0.95)
   );
-  // 背板。奥からの抜けを塞ぐ。**殻と同じ色にする。**
-  // 別の色にした版は「たまごの後ろに板が置いてある」ように見えた
-  group.add(plate('egg.back', RX * 1.72, LOWER * 1.1, PLATE, standard(p.body, 0.95), 0, CRACK_Y - LOWER * 0.5, -HALF_D - 0.1));
+  back.name = 'egg.back';
+  back.scale.set(RX * 0.98, LOWER * 0.98, 1);
+  back.position.set(0, CRACK_Y, -HALF_D - 0.1);
+  group.add(back);
 
-  // まだら。無地だと石に見えた
+  // まだら。無地だと石に見えた。**殻の表面に沿って置く**
   for (const [x, y, r] of [
-    [-0.28, -0.2, 0.11],
-    [0.22, -0.55, 0.09],
-    [0.05, -0.86, 0.07],
+    [-0.3, -0.22, 0.12],
+    [0.24, -0.6, 0.1],
+    [0.06, -0.95, 0.08],
   ] as const) {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), standard(p.accent, 0.95));
     dot.name = 'egg.dot';
-    dot.scale.z = 0.25;
-    dot.position.set(x, CRACK_Y + y, FRONT_Z + 0.06);
+    dot.scale.z = 0.2;
+    dot.position.set(x, CRACK_Y + y, FRONT_Z - 0.01);
     group.add(dot);
   }
 

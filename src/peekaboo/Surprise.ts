@@ -110,10 +110,16 @@ function mulberry32(seed: number): () => number {
  *
  * **`top` だけ上下を反転させる。** 反転しないと、上から降りてきた動物が
  * 逆立ちしているように見える。反転すると「画面の外から覗き込んでいる」に見える。
+ *
+ * **左右は 2026-09-07 に人間が取り下げた。**
+ * 「サプライズ演出の上下は良いが左右はばあっぽくない」。
+ * 横から入ってくる動きは「ばあ」ではなく「通り過ぎる」に見える。
+ * 型には残してあるが（`SIDE_*` の実測を捨てないため）、`DIRECTIONS` から
+ * 外してあるので抽選には出ない
  */
 export type SurpriseDirection = 'bottom' | 'top' | 'left' | 'right';
 
-const DIRECTIONS: readonly SurpriseDirection[] = ['bottom', 'top', 'left', 'right'];
+const DIRECTIONS: readonly SurpriseDirection[] = ['bottom', 'top'];
 
 export type SurpriseEvent = (animalId: string) => void;
 

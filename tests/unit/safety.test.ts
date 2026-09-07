@@ -70,7 +70,6 @@ import {
   AnimalSystem,
   EXPECTED_HINT_EXPOSURE,
   FLASH_MIN_INTERVAL_SEC,
-  HIDDEN_SINK,
 } from '../../src/peekaboo/AnimalSystem';
 import {
   AIM_SEC,
@@ -809,32 +808,51 @@ describe('不変条件3 — 隠れていても必ず見えている', () => {
     }
   });
 
-  it('ヒントの出す量は、体の高さを実測して決めている', () => {
-    // 定数を信じない。耳や尻尾を足すと体の高さは変わるので、
-    // 決め打ちにすると隠れ方が動物ごとにずれる。
+  it('縁から出る量は、動物の大きさによらず同じ割合になる（§4-2）', () => {
+    // ==========================================================================
+    // §4-2 は「**体長の** 15〜25% が縁から見えている」。
     //
-    // 縁から出る量 ＝ ヒントの長さ（体高の HINT_EXPOSURE 倍）
-    //                − 沈めた量（HIDDEN_SINK は体高によらず一定）
-    // なので、**体高で割ったときの値は動物ごとに違う**のが正しい。
-    // ここが全部同じ値になっていたら、高さを実測せず決め打ちにしている
-    // モードB はヒントを出さないので、ここはモードAだけを見る
-    const seen = new Set<number>();
-    for (const rigging of [rig()]) {
-      for (const spot of rigging.spots.runtimes) {
-        const e = rigging.animals.getExposure(spot);
-        if (!e) continue;
-        expect(e.animalHeight).toBeGreaterThan(0);
-
-        const base = EXPECTED_HINT_EXPOSURE - HIDDEN_SINK / e.animalHeight;
-        // 先端（鼻先・足）が少しはみ出すので、下回ることはない
-        expect(e.fraction, spot.config.id).toBeGreaterThanOrEqual(base - 1e-6);
-        // はみ出しても 12% まで。これを超えるならヒントの形が大きすぎる
-        expect(e.fraction, spot.config.id).toBeLessThanOrEqual(base * 1.12);
-        seen.add(Math.round(e.fraction * 1000));
+    // 見えている量は「ヒントの高さ × 倍率 − 沈めた深さ」で、沈める深さは
+    // 絶対値（見下ろす角度で決まる）。そのままだと**小さい動物ほど沈みぶんが
+    // 効いて、はみ出しが減る**。隠れ場所を大きくした（2026-09-07）ときに
+    // 実際に開いて、大きい絵 0.225 / 小さい手続き生成 0.127 と、band（0.10 幅）を
+    // 使い切ってしまった。**沈めたぶんはヒント側で伸ばして打ち消す**。
+    //
+    // ここでは「大きさが 3倍 違う動物どうしでも、割合がそろっていること」を見る。
+    // 割合が体高で割り切れていなければ（＝絶対値で決め打ちしていれば）落ちる。
+    // ==========================================================================
+    const values: { id: string; fraction: number; height: number }[] = [];
+    for (const id of HIDEOUT_SCENES) {
+      for (const useCutouts of [false, true]) {
+        const { spots, animals, advance } = sceneRig(id, 12345, useCutouts);
+        advance(0.5);
+        for (const spot of spots.runtimes) {
+          const e = animals.getExposure(spot);
+          const slot = animals.getSlot(spot.config.id);
+          if (!e || !slot) continue;
+          expect(e.animalHeight).toBeGreaterThan(0);
+          values.push({
+            id: `${id}/${spot.config.id}（絵=${useCutouts}）`,
+            fraction: e.fraction,
+            height: e.animalHeight,
+          });
+        }
       }
     }
-    // 体高の違う動物が、違う割合で出ている（決め打ちなら1種類になる）
-    expect(seen.size).toBeGreaterThan(1);
+    expect(values.length).toBeGreaterThan(20);
+
+    // 大きさは実際に大きく違っている（そろっていたら、この検査に意味がない）
+    const heights = values.map((v) => v.height);
+    expect(Math.max(...heights) / Math.min(...heights)).toBeGreaterThan(2.5);
+
+    for (const v of values) {
+      // §4-2 の band
+      expect(v.fraction, v.id).toBeGreaterThanOrEqual(0.15);
+      expect(v.fraction, v.id).toBeLessThanOrEqual(0.25);
+      // **大きさによらず同じ割合。** ヒントの形ごとの差ぶんだけ許す
+      expect(v.fraction, v.id).toBeGreaterThanOrEqual(EXPECTED_HINT_EXPOSURE * 0.88);
+      expect(v.fraction, v.id).toBeLessThanOrEqual(EXPECTED_HINT_EXPOSURE * 1.15);
+    }
   });
 
   it('隠れ場所の開口部が、動物の断面の 0.86 倍以上を覆う（§4-2）', () => {
@@ -1558,6 +1576,45 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
       }
     }
   );
+
+  it.each([
+    ...ALL_SCENES.map((id) => [id, false] as const),
+    ...ALL_SCENES.map((id) => [id, true] as const),
+  ])('%s（絵=%s）: 出きった動物が、画面の外にはみ出さない', (id, useCutouts) => {
+    // **上の段を上げすぎると、頭が画面の外へ出る**（2026-09-07 に実機で
+    // 「ゾウが切れている」と分かった）。カメラは固定なので、画面の上端は
+    // 計算で出せる
+    const { spots, animals, advance } = sceneRig(id, 12345, useCutouts);
+    advance(0.5);
+    const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
+    camera.position.set(0, 0.3, 7.2);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+
+    const box = new THREE.Box3();
+    const corner = new THREE.Vector3();
+    for (const spot of spots.runtimes) {
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+      spots.tap(spot);
+      advance(PEAK_AT_SEC + 0.5);
+      spots.group.updateWorldMatrix(true, true);
+
+      box.makeEmpty();
+      for (const child of slot.built.group.children) {
+        if (child === slot.built.hint) continue;
+        box.expandByObject(child);
+      }
+      // 見かけの上端が、画面（-1..1）の内側にあること
+      corner.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
+      corner.project(camera);
+      expect(
+        corner.y,
+        `${id}/${spot.config.id}: 頭が画面の上で切れている（${corner.y.toFixed(2)}）`
+      ).toBeLessThanOrEqual(1);
+      advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.3);
+    }
+  });
 
   it.each([
     ...ALL_SCENES.map((id) => [id, false] as const),
@@ -2792,7 +2849,9 @@ describe('§6-3 サプライズ「ばあっ！」', () => {
     }
   });
 
-  it('4方向すべてから出る（人間が決めた。2026-09-06）', () => {
+  it('上と下からだけ出る（左右は 2026-09-07 に人間が取り下げた）', () => {
+    // 「サプライズ演出の上下は良いが左右はばあっぽくない」。
+    // 横から入ってくる動きは「ばあ」ではなく「通り過ぎる」に見える
     const s = surpriseRig();
     const seen = new Map<SurpriseDirection, number>();
     let prev: SurpriseDirection | null = null;
@@ -2800,13 +2859,16 @@ describe('§6-3 サプライズ「ばあっ！」', () => {
       s.update(MIN_GAP_FOR_TEST, camera());
       if (!s.maybeTrigger('neko')) continue;
       const d = s.getDirection();
-      // **同じ向きを2回続けない。** 続くと4方向にした意味が無くなる
+      // **同じ向きを2回続けない。** 続くと向きを分けた意味が無くなる
       expect(d === prev, `${i} 回目で ${d} が2連続`).toBe(false);
       prev = d;
       seen.set(d, (seen.get(d) ?? 0) + 1);
     }
-    for (const d of ['bottom', 'top', 'left', 'right'] as const) {
+    for (const d of ['bottom', 'top'] as const) {
       expect(seen.get(d) ?? 0, `${d} が一度も出ていない`).toBeGreaterThan(5);
+    }
+    for (const d of ['left', 'right'] as const) {
+      expect(seen.get(d) ?? 0, `${d} が出ている（取り下げたはず）`).toBe(0);
     }
   });
 

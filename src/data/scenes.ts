@@ -64,11 +64,23 @@ const HIT_RADIUS_PX = 120;
  * （さる が きげあーす に 0.92×0.39 重なった。ほかに そと・うみ・
  *  のうじょう・きょうりゅう でも起きていた）。
  * 重ならないところまで動物を縮めると、下の段が 61〜97px しか見えなくなる。
- * 上下に広げる（+2.05 / −1.75）と、同じ「重なり 0」で 73〜146px まで戻る。
+ * 上下に広げると、同じ「重なり 0」のまま動物が大きくなる。
  *
- * これ以上（+2.5 / −2.1）広げても 1〜3px しか増えない。そこから先は
- * 隠れ場所そのものの大きさ（`room`）が上限になるため。
- * 当たり判定の下端は 628px → 676px（デモのバーは 756px から）。
+ * さらに隠れ場所そのものも大きくした（W 1.35→1.70 / H 1.05→1.35。
+ * 「動物が小さくなったように感じます。特にキリンやゾウ」と言われたため）。
+ * 実測（さる／きりん の見えている高さ）:
+ *
+ * ただし**上げすぎると、上の段の動物が画面の上で切れる**
+ * （+2.45 で ぞう の頭が切れた。`SCREEN_TOP_Y` を見ること）。
+ * 上下の段で見えている高さがそろうところを実測で選んだ:
+ *
+ *   上段 / 下段        いちばん小さい  平均   おうち上段  どうぶつえん下段
+ *   +2.45 / −1.95        76px         110px   76px       192px
+ *   +2.10 / −1.95        82px         118px   98px       172px
+ *   **+1.90 / −2.00**    82px         120px   98px       158px  ← これ
+ *   +1.75 / −2.05        82px         122px   98px       150px
+ *
+ * もとの +1.55 / −1.20 ＋ 小さい隠れ場所では 61〜97px（しかも重なりあり）。
  */
 
 const OUCHI: SceneConfig = {
@@ -86,7 +98,7 @@ const OUCHI: SceneConfig = {
     {
       id: "hako",
       kind: "box",
-      position: [-1.15, 2.05, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       // 1体だけ。同じ場所から別の動物が出る仕掛け（§6-2）は Phase 7
@@ -95,7 +107,7 @@ const OUCHI: SceneConfig = {
     {
       id: "kaaten",
       kind: "curtain",
-      position: [1.15, 2.05, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kotori"],
@@ -103,7 +115,7 @@ const OUCHI: SceneConfig = {
     {
       id: "huton",
       kind: "blanket",
-      position: [-1.15, -1.75, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["nezumi"],
@@ -111,7 +123,7 @@ const OUCHI: SceneConfig = {
     {
       id: "tobira",
       kind: "door",
-      position: [1.15, -1.75, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["inu"],
@@ -163,7 +175,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa1",
       kind: "bush",
-      position: [-1.28, 2.15, 0],
+      position: [-1.28, 2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -171,7 +183,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa2",
       kind: "bush",
-      position: [1.28, 2.15, 0],
+      position: [1.28, 2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -187,7 +199,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa4",
       kind: "bush",
-      position: [-1.28, -1.9, 0],
+      position: [-1.28, -2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -195,7 +207,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa5",
       kind: "bush",
-      position: [1.28, -1.9, 0],
+      position: [1.28, -2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -228,7 +240,7 @@ const SOTO: SceneConfig = {
     {
       id: "kusa",
       kind: "bush",
-      position: [-1.15, 2.05, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kaeru"],
@@ -236,7 +248,7 @@ const SOTO: SceneConfig = {
     {
       id: "iwa",
       kind: "rock",
-      position: [1.15, 2.05, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["risu"],
@@ -244,7 +256,7 @@ const SOTO: SceneConfig = {
     {
       id: "hora",
       kind: "hollow",
-      position: [-1.15, -1.75, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["harinezumi"],
@@ -252,7 +264,7 @@ const SOTO: SceneConfig = {
     {
       id: "hachi",
       kind: "pot",
-      position: [1.15, -1.75, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["chocho"],
@@ -285,7 +297,7 @@ const UMI: SceneConfig = {
     {
       id: "suimen",
       kind: "water",
-      position: [-1.15, 2.05, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kumanomi"],
@@ -293,7 +305,7 @@ const UMI: SceneConfig = {
     {
       id: "kaisou",
       kind: "bush",
-      position: [1.15, 2.05, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["tako"],
@@ -301,7 +313,7 @@ const UMI: SceneConfig = {
     {
       id: "umiiwa",
       kind: "rock",
-      position: [-1.15, -1.75, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kani"],
@@ -309,7 +321,7 @@ const UMI: SceneConfig = {
     {
       id: "tsubo",
       kind: "pot",
-      position: [1.15, -1.75, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["pengin"],
@@ -338,7 +350,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "koya",
       kind: "door",
-      position: [-1.15, 2.05, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["ushi"],
@@ -346,7 +358,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "wara",
       kind: "bush",
-      position: [1.15, 2.05, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["buta"],
@@ -354,7 +366,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "saku",
       kind: "rock",
-      position: [-1.15, -1.75, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["hitsuji"],
@@ -362,7 +374,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "okego",
       kind: "pot",
-      position: [1.15, -1.75, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["niwatori"],
@@ -384,7 +396,7 @@ const DOBUTSUEN: SceneConfig = {
     {
       id: "iwaba",
       kind: "rock",
-      position: [-1.15, 2.05, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["raion"],
@@ -392,7 +404,7 @@ const DOBUTSUEN: SceneConfig = {
     {
       id: "kigearth",
       kind: "hollow",
-      position: [1.15, 2.05, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["zou"],
@@ -400,7 +412,7 @@ const DOBUTSUEN: SceneConfig = {
     {
       id: "takaki",
       kind: "bush",
-      position: [-1.15, -1.75, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kirin"],
@@ -408,7 +420,7 @@ const DOBUTSUEN: SceneConfig = {
     {
       id: "hachi",
       kind: "pot",
-      position: [1.15, -1.75, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["saru"],
@@ -431,7 +443,7 @@ const KYORYU: SceneConfig = {
     {
       id: "ooiwa",
       kind: "rock",
-      position: [-1.15, 2.05, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["tirano"],
@@ -439,7 +451,7 @@ const KYORYU: SceneConfig = {
     {
       id: "shida",
       kind: "bush",
-      position: [1.15, 2.05, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["torikera"],
@@ -447,7 +459,7 @@ const KYORYU: SceneConfig = {
     {
       id: "kikabu",
       kind: "hollow",
-      position: [-1.15, -1.75, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["sutego"],
@@ -455,7 +467,7 @@ const KYORYU: SceneConfig = {
     {
       id: "tamago",
       kind: "pot",
-      position: [1.15, -1.75, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["putera"],
