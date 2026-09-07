@@ -392,8 +392,11 @@ export class App {
        * 影を消した1枚を別に撮って、**本体だけ**を切り出す。
        */
       setShadowsVisible: (visible: boolean): void => {
+        // **ハローも一緒に消すこと。** 消し忘れると、輪郭のすぐ外の暗がりが
+        // 「隠れ場所の画素」として切り出され、輪郭の明度差が壊れる
+        // （実測: V1 が 29箇所中 21箇所で 30 台 → 6〜7 に落ちた）
         this.sceneRoot?.spots.group.traverse((o) => {
-          if (o.name === 'contactShadow') o.visible = visible;
+          if (o.name === 'contactShadow' || o.name === 'edgeHalo') o.visible = visible;
         });
         this.loop.stepExact(0);
       },

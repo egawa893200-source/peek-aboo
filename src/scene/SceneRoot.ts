@@ -390,7 +390,9 @@ export class SceneRoot {
       // ==================================================================
       const depth = camera.position.z / (camera.position.z - DROP_SHADOW.z);
       runtime.group.getWorldPosition(_shadowAt);
-      const wantWorldY = _shadowAt.y + centerY + DROP_SHADOW.offsetY;
+      const round = ROUND_SHAPES.has(runtime.shapeKind);
+      const offsetY = DROP_SHADOW.offsetY * (round ? DROP_SHADOW.roundOffsetScale : 1);
+      const wantWorldY = _shadowAt.y + centerY + offsetY;
       const localY = (wantWorldY - camera.position.y) / depth - _shadowAt.y + camera.position.y;
 
       shadow.geometry.dispose();
@@ -398,7 +400,7 @@ export class SceneRoot {
       shadow.geometry = new THREE.PlaneGeometry(width / depth, height / depth);
       // **角のあるものに楕円の影を付けない。** 形が合っていないと
       // 「別のものが後ろに置いてある」ように見える
-      const texture = ROUND_SHAPES.has(runtime.shapeKind) ? this.shadowTexture : this.shadowRectTexture;
+      const texture = round ? this.shadowTexture : this.shadowRectTexture;
       if (texture) (shadow.material as THREE.MeshBasicMaterial).map = texture;
       shadow.position.set(DROP_SHADOW.offsetX / depth, localY, DROP_SHADOW.z);
     }

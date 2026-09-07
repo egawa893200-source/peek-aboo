@@ -202,7 +202,10 @@ async function scoreInPage({ fullUrl, solidUrl, bgUrl }) {
       const ox = x + dxs[best] * (bestD + 4);
       const oy = y + dys[best] * (bestD + 4);
       if (ox < 0 || oy < 0 || ox >= w || oy >= h) continue;
-      deltas.push(Math.abs(labSolid.L[p] - labBg.L[oy * w + ox]));
+      // **外側は「画面に出ている絵」から取る**（`labBg` ではなく `labFull`）。
+      // 落ち影やハローは背景を暗くするので、そこも含めたものが
+      // 実際に目に入る明度差になる。背景だけの1枚は切り出しにしか使わない
+      deltas.push(Math.abs(labSolid.L[p] - labFull.L[oy * w + ox]));
     }
     const v1 = quantile(deltas, 0.1);
     const v6 = deltas.length ? deltas.filter((d) => d < 6).length / deltas.length : 1;
