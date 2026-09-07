@@ -44,6 +44,7 @@ function camera(): THREE.PerspectiveCamera {
   return c;
 }
 import { findScene, SCENES } from '../../src/data/scenes';
+import { backdropImageSize, createBackdropImage } from '../../src/scene/Backdrop';
 import {
   BUBBLE_COUNT,
   CAMEO_EVERY_SEC,
@@ -1089,6 +1090,54 @@ describe('1体ずつしか出さない（2026-09-07。人間が決めた）', ()
     const before = empty.getStartedCount();
     expect(spots.tap(miss)).toBe(true);
     expect(empty.getStartedCount()).toBe(before + 1);
+  });
+});
+
+describe('背景の絵（`SceneConfig.backgroundUrl`）', () => {
+  // **画像を用意する前に、貼る側の穴を塞いでおく。**
+  // 素材が無いあいだはフォールバックが効いて「一応動く」ので、
+  // 通っていないことに気づけない（CLAUDE.md）
+
+  it.each([
+    [1024, 2048],
+    [1024, 1024],
+    [2048, 1024],
+  ])('%s×%s の絵でも、縦横比が崩れない', (w, h) => {
+    const size = backdropImageSize(w / h);
+    expect(size.width / size.height).toBeCloseTo(w / h, 6);
+  });
+
+  it('どの縦横比でも、縦持ちの画面に入る範囲を覆う', () => {
+    // 実測（2026-09-07）: z = -1.55（カメラから 8.75）で画面に入るのは
+    // 縦 11.36・横 5.57
+    const NEED_W = 5.57;
+    const NEED_H = 11.36;
+    for (const aspect of [0.4, 0.5, 0.6, 1, 1.5, 2]) {
+      const size = backdropImageSize(aspect);
+      expect(size.width, `アスペクト ${aspect}`).toBeGreaterThanOrEqual(NEED_W);
+      expect(size.height, `アスペクト ${aspect}`).toBeGreaterThanOrEqual(NEED_H);
+    }
+  });
+
+  it('縦長（1:2）の絵は、拡大されずにちょうど収まる', () => {
+    // 絵より板を大きくすると、描いた端が画面に出なくなる。
+    // 1:2 は「この app のために描く」ときの推奨なので、無駄が出ないこと
+    const size = backdropImageSize(0.5);
+    expect(size.height).toBeLessThan(11.36 * 1.2);
+  });
+
+  it('背景の絵には光を当てない（描いたとおりの色を出す）', () => {
+    // 動物の絵（道A）とまったく同じ理由。上から光を足すと絵の色が変わる
+    const tex = new THREE.Texture();
+    tex.image = { width: 1024, height: 2048 };
+    const mesh = createBackdropImage(tex);
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    expect(mat.type).toBe('MeshBasicMaterial');
+    expect(mat.toneMapped).toBe(false);
+    // 隠れ場所（z = 0）より奥に敷く
+    expect(mesh.position.z).toBeLessThan(0);
+    mesh.geometry.dispose();
+    mat.dispose();
   });
 });
 

@@ -23,7 +23,12 @@ import { SpotShuffle } from '../peekaboo/SpotShuffle';
 import { createCutoutAnimal, createCutoutShadow } from '../peekaboo/CutoutAnimal';
 import { createProceduralAnimal } from '../peekaboo/ProceduralAnimals';
 import { SpotSystem } from '../peekaboo/SpotSystem';
-import { createBackdropTexture, createContactShadow, createShadowTexture } from './Backdrop';
+import {
+  createBackdropImage,
+  createBackdropTexture,
+  createContactShadow,
+  createShadowTexture,
+} from './Backdrop';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
 
 /** 行き先の隠れ場所からこれだけ離れていないと、足あとを落とさない */
@@ -60,6 +65,8 @@ export class SceneRoot {
 
   /** 床。隠れ場所が宙に浮いて見えないように敷くだけ */
   private readonly floor: THREE.Mesh;
+  /** 背景の絵の板。指定が無ければ null（グラデーションだけ） */
+  private readonly backdropImage: THREE.Mesh | null;
   /** 手続き生成の背景と影。**`AssetLoader` は持っていないので自分で捨てる** */
   private readonly backdrop: THREE.Texture | null;
   private readonly shadowTexture: THREE.Texture | null;
@@ -82,6 +89,7 @@ export class SceneRoot {
     empty: EmptySpot,
     flavor: Flavor,
     floor: THREE.Mesh,
+    backdropImage: THREE.Mesh | null,
     backdrop: THREE.Texture | null,
     shadowTexture: THREE.Texture | null,
     shadows: readonly THREE.Mesh[],
@@ -98,7 +106,9 @@ export class SceneRoot {
     this.empty = empty;
     this.flavor = flavor;
     this.floor = floor;
+    this.backdropImage = backdropImage;
     this.group.add(floor);
+    if (backdropImage) this.group.add(backdropImage);
     this.group.add(spots.group);
     // 横切るものは隠れ場所より奥に置く（`Flavor` が z を決めている）
     this.group.add(flavor.group);
@@ -139,7 +149,6 @@ export class SceneRoot {
       color: backdrop ? 0xffffff : 0x2a3550,
       roughness: 1,
       metalness: 0,
-      ...(background ? { map: background } : {}),
       ...(backdrop ? { map: backdrop } : {}),
     });
     // **画面いっぱいを覆う大きさにする**（2026-09-07）。
@@ -151,6 +160,14 @@ export class SceneRoot {
     // 真後ろの垂直な板にすると、隠れ場所との前後関係が読めない
     floor.position.set(0, 0, -1.6);
     floor.rotation.x = -0.12;
+
+    // 背景の絵（`SceneConfig.backgroundUrl`）。
+    //
+    // **正方形の板に貼らないこと。** グラデーションと同じ 16×16 に貼ると、
+    // 縦長の絵が横に潰れる。絵の縦横比のまま、画面に入る範囲を覆う大きさで
+    // 別の板に貼る（うしろにグラデーションの板が残るので、横持ちでも
+    // 地の色は出ない）。**光を当てない**ので、描いたとおりの色が出る
+    const backdropImage = background ? createBackdropImage(background) : null;
 
     // 絵をそのまま貼る動物（道A）の素材を、場面ぶんまとめて読む。
     // **1枚でも読めなければ、その動物だけ手続き生成に落ちる**（不変条件7）。
@@ -285,7 +302,7 @@ export class SceneRoot {
       }
     }
 
-    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdrop, shadowTexture, shadows, cutouts);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadows, cutouts);
     root.cameo = cameoBuilt;
     root.shadowShapes = shadowShapes;
     return root;
@@ -370,6 +387,8 @@ export class SceneRoot {
     this.animals.dispose();
     this.spots.dispose();
     disposeObject3D(this.floor);
+    // **テクスチャは `AssetLoader` が持っている**ので、板だけ捨てる
+    if (this.backdropImage) disposeObject3D(this.backdropImage, { keepTextures: true });
     disposeObject3D(this.group);
   }
 }

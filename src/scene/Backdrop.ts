@@ -108,3 +108,51 @@ export function createContactShadow(texture: THREE.Texture, width: number): THRE
   mesh.renderOrder = -1;
   return mesh;
 }
+
+/* --- 背景の絵（`SceneConfig.backgroundUrl`）------------------------------- */
+
+/**
+ * 背景の絵を敷く板の大きさ（ワールド）。
+ *
+ * ==========================================================================
+ * **縦横比を崩さないこと。** 手続き生成のグラデーションは 16×16 の
+ * 正方形の板に貼っているが、そこに縦長の絵を貼ると横に潰れる。
+ *
+ * 画面に入る範囲は実測で決めた（2026-09-07）。縦持ちのカメラは
+ * fov 66°・アスペクト 0.49 で、この奥行き（z = -1.55、カメラから 8.75）では
+ * **縦 11.36・横 5.57**。8% の余白を足したものを覆えばよい。
+ *
+ * 絵より板を大きくしない（＝拡大しない）。拡大すると、絵のうち画面に
+ * 出る割合が減って、せっかく描いた端が見えなくなる。
+ * **横持ちでは板が画面の幅に足りない**が、うしろに従来のグラデーションの
+ * 板が残っているので、地の色が出ることはない。
+ * ==========================================================================
+ */
+export function backdropImageSize(aspect: number): { width: number; height: number } {
+  const NEED_W = 5.57 * 1.08;
+  const NEED_H = 11.36 * 1.08;
+  const height = Math.max(NEED_H, NEED_W / Math.max(0.01, aspect));
+  return { width: height * aspect, height };
+}
+
+/**
+ * 背景の絵の板。
+ *
+ * **光を当てない**（`MeshBasicMaterial` ＋ `toneMapped = false`）。
+ * 描いたとおりの色を出すため。動物の絵（道A）とまったく同じ理由で、
+ * 上から光を足すと絵の色が変わる（CLAUDE.md「加算で足す光は、体色を消す」）。
+ */
+export function createBackdropImage(texture: THREE.Texture): THREE.Mesh {
+  const image = texture.image as { width?: number; height?: number } | null;
+  const aspect = (image?.width ?? 1) / (image?.height ?? 1);
+  const { width, height } = backdropImageSize(aspect);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture, toneMapped: false })
+  );
+  mesh.name = 'backdrop.image';
+  // グラデーションの板（z = -1.6）のすぐ手前。隠れ場所より奥
+  mesh.position.set(0, 0, -1.55);
+  mesh.rotation.x = -0.12;
+  return mesh;
+}
