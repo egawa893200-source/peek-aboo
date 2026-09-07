@@ -1004,7 +1004,7 @@ function createEgg(p: Palette, spotX: number): SpotShape {
       // 1.35rad ＋ 0.34 では、出てきた動物にふたが掛かって
       // 体の見えている割合が 54% まで落ちた（判定は 55%）
       capPivot.rotation.z = -tipSide * t * 1.35;
-      capPivot.position.x = tipSide * (CRACK_HALF_W + t * 0.3);
+      capPivot.position.x = tipSide * (CRACK_HALF_W + t * 0.12);
       capPivot.position.y = CRACK_Y + t * 0.04;
     },
     setWobble(r) {
