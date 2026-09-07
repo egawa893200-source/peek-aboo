@@ -38,6 +38,14 @@ export interface SceneConfig {
   mode: SceneMode;
   /** null なら手続き生成（不変条件7） */
   backgroundUrl: string | null;
+  /**
+   * 手続き生成の背景のグラデーション（上・下）。省略すると既定の夜空。
+   *
+   * **場面ごとに変えるためだけのデータ。** 全部同じ #3d5c8c → #0b1526 だと、
+   * うみ も きょうりゅう も同じ場所に見える（「フィールドの安っぽさ」の一部）。
+   * `backgroundUrl` に絵を置いたらこちらは使われない
+   */
+  sky?: [string, string];
   ambientSound: string | null;
   /**
    * 隠れ場所。**必ず4箇所**（§5-3）。
@@ -46,6 +54,33 @@ export interface SceneConfig {
   spots: SpotConfig[];
   /** mode 'chase' のときだけ使う。ここに住む1体 */
   runner?: AnimalId;
+  /**
+   * 場面ごとの味つけ（2026-09-07。人間が決めた「場面ごとのスペシャル」）。
+   *
+   * **演出の実装は `scene/Flavor.ts` に1つずつ置き、場面はここで選ぶだけ。**
+   * `if (scene.id === 'kyoryu')` と書き始めると、動物を17体にしたときと
+   * 同じ壊れ方をする（分岐が散って、新しい場面で1箇所だけ入れ忘れる）。
+   */
+  flavor?: SceneFlavor;
+}
+
+/** 常時のゆれ。`wind` は左から右へ波が渡る。`water` は方向を持たない */
+export type SwayKind = 'wind' | 'water';
+/** 画面を横切るもの。**手続き生成だけで作る**（不変条件7） */
+export type CrossingKind = 'butterfly' | 'fish';
+
+/** 場面ごとの味つけ。**どれも省略できる。省略した場面は何も起きない** */
+export interface SceneFlavor {
+  /** 隠れ場所がゆっくり傾き続ける */
+  sway?: SwayKind;
+  /** ときどき何かが画面を横切る */
+  crossing?: CrossingKind;
+  /** 登場の山で、隠れ場所がいっせいに揺れる（地ひびき） */
+  quake?: boolean;
+  /** ため のあいだに足音が2回。近づいてくるように間隔を詰める */
+  footstep?: boolean;
+  /** ため のあいだに隠れ場所がもぞもぞ動く */
+  wobble?: boolean;
 }
 
 /** 隠れ場所の形。開き方もこれで決まる */

@@ -84,7 +84,7 @@ export type VoiceClip = 'baa' | 'kocchi';
  *  - rustle … 草をかき分けるワサワサ（§4-5 / §4-6）
  *  - huh    … 空振りの「あれ？」（§4-6。**落胆の音にしない**）
  */
-export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh';
+export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh' | 'thud';
 
 /**
  * 声の base64 を取り出す。
@@ -130,6 +130,12 @@ export class AudioBus {
   private lastOneShot = 0;
   /** ワサワサの最短間隔用。ほかの単発音とは別枠にする */
   private lastRustle = 0;
+  /**
+   * 足音の最短間隔用。**これも別枠。**
+   * 足音はタップの「ぽん」と同じ瞬間に始まるので、共通の 0.05秒 の枠に
+   * 入れると1回目が黙って落ちる（「声が鳴らないのはたいてい間隔制限」）
+   */
+  private lastThud = 0;
   /** ワサワサのノイズ。毎回作らずに使い回す（§10-3） */
   private rustleBuffer: AudioBuffer | null = null;
   /**
@@ -669,10 +675,12 @@ export class AudioBus {
     // ワサワサ（rustle）だけは別枠。ふたが開く音と跳ねる音は
     // 同じ瞬間に鳴ることがあり、片方が消えると動きと音がずれて聞こえる
     const now = ctx.currentTime;
-    const gate = name === 'rustle' ? this.lastRustle : this.lastOneShot;
+    const gate =
+      name === 'rustle' ? this.lastRustle : name === 'thud' ? this.lastThud : this.lastOneShot;
     const minGap = name === 'rustle' ? 0.18 : 0.05;
     if (now - gate < minGap) return;
     if (name === 'rustle') this.lastRustle = now;
+    else if (name === 'thud') this.lastThud = now;
     else this.lastOneShot = now;
 
     if (name === 'rustle') {
@@ -710,6 +718,19 @@ export class AudioBus {
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
       osc.start(now);
       osc.stop(now + 0.42);
+    } else if (name === 'thud') {
+      // 足音（きょうりゅう・どうぶつえん）。**低く、短く、余韻を残さない。**
+      // スマホのスピーカーは 100Hz を下回るとほとんど鳴らないので、
+      // 120Hz から落として「ドスン」に聞こえる範囲に収めた。
+      // 60Hz まで下げた版は実機で無音に近く、鳴っているのが分からなかった
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(120, now);
+      osc.frequency.exponentialRampToValueAtTime(52, now + 0.16);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(ONE_SHOT_PEAK * 0.75, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
+      osc.start(now);
+      osc.stop(now + 0.28);
     } else if (name === 'plop') {
       // 低い音を短く落とす
       osc.frequency.setValueAtTime(420, now);

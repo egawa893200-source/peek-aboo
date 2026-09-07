@@ -176,6 +176,10 @@ export class App {
 
       // ぴょんぴょん（§4-5）。1跳ねごとに1回
       next.chase?.onHop(() => this.audio.playOneShot('hop'));
+
+      // 場面ごとの味つけ（2026-09-07）。足音だけ音に繋ぐ。
+      // **`Flavor` の中で音を鳴らさない。** 音の配線は App に集める
+      next.flavor.onFootstep(() => this.audio.playOneShot('thud'));
     } finally {
       this.building = false;
     }
@@ -245,6 +249,22 @@ export class App {
         running: this.surprise.isRunning(),
         direction: this.surprise.getDirection(),
       }),
+      /** 場面ごとの味つけ（2026-09-07）。実測用 */
+      getFlavor: (): {
+        footsteps: number;
+        crossings: number;
+        quaking: boolean;
+        maxTiltRad: number;
+      } | null => {
+        const flavor = this.sceneRoot?.flavor;
+        if (!flavor) return null;
+        return {
+          footsteps: flavor.getFootstepCount(),
+          crossings: flavor.getCrossingCount(),
+          quaking: flavor.isQuaking(),
+          maxTiltRad: flavor.getMaxTiltRad(),
+        };
+      },
       getFrameCount: (): number => this.loop.frameCount,
       /**
        * 更新が進めた時間（秒）。**壁時計ではない**（`Loop.simulatedSeconds`）。

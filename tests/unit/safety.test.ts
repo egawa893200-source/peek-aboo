@@ -45,6 +45,20 @@ function camera(): THREE.PerspectiveCamera {
 }
 import { findScene, SCENES } from '../../src/data/scenes';
 import {
+  CROSS_GAP_SEC,
+  CROSS_SEC,
+  CROSS_X,
+  Flavor,
+  FOOTSTEP_AT_SEC,
+  maxSpotTiltRad,
+  PROP_COUNT,
+  QUAKE_SEC,
+  WATER_AMP2_RAD,
+  WATER_AMP_RAD,
+  WIND_AMP_RAD,
+  WOBBLE_AMP_RAD,
+} from '../../src/scene/Flavor';
+import {
   AnimalSystem,
   EXPECTED_HINT_EXPOSURE,
   FLASH_MIN_INTERVAL_SEC,
@@ -185,6 +199,11 @@ function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
   const empty = new EmptySpot(spots);
   spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
 
+  // **味つけも動かした状態で不変条件を見る**（2026-09-07）。
+  // ここを繋がないと、隠れ場所を傾ける演出を足しても
+  // 「隠れているのに体が見えている」のテストが素通りする
+  const flavor = new Flavor(spots.runtimes, scene.flavor, { seed });
+
   const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
   camera.position.set(0, 0.3, 7.2);
   camera.lookAt(0, 0, 0);
@@ -197,6 +216,7 @@ function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
     // モードAの場面では chase は無い。呼ばないこと
     chase: chase as ChaseSystem,
     empty,
+    flavor,
     answer: () => (chase ? chase.getAnswerSpot() : spots.runtimes[0]),
     advance(seconds, onFrame) {
       const frames = Math.round(seconds / DT);
@@ -205,6 +225,8 @@ function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
         spots.update(DT);
         chase?.update(DT);
         empty.update(DT);
+        // `SceneRoot.update()` と同じ順番。`SpotSystem` のあと、`AnimalSystem` の前
+        flavor.update(DT);
         animals.update(DT, spots, camera);
       }
     },
@@ -219,6 +241,8 @@ const ALL_SCENES = SCENES.map((s) => s.id);
 interface ChaseRig extends Rig {
   chase: ChaseSystem;
   empty: EmptySpot;
+  /** 場面ごとの味つけ（2026-09-07）。`advance` の中で毎フレーム動く */
+  flavor: Flavor;
   /** うさぎが居る（or 向かっている）隠れ場所 */
   answer(): SpotRuntime;
 }
@@ -240,6 +264,7 @@ function chaseRig(seed = 12345): ChaseRig {
   const chase = new ChaseSystem(spots, animals, { seed, startSpotId: start.config.id });
   const empty = new EmptySpot(spots);
   spots.onEmpty((spot) => empty.trigger(spot, chase.getAnswerSpot()));
+  const flavor = new Flavor(spots.runtimes, NOHARA.flavor, { seed });
 
   const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
   camera.position.set(0, 0.3, 7.2);
@@ -252,6 +277,7 @@ function chaseRig(seed = 12345): ChaseRig {
     camera,
     chase,
     empty,
+    flavor,
     answer: () => chase.getAnswerSpot(),
     advance(seconds, onFrame) {
       const frames = Math.round(seconds / DT);
@@ -261,6 +287,7 @@ function chaseRig(seed = 12345): ChaseRig {
         spots.update(DT);
         chase.update(DT);
         empty.update(DT);
+        flavor.update(DT);
         animals.update(DT, spots, camera);
       }
     },
@@ -1370,6 +1397,239 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
         ).toBeLessThan(d);
       }
     }
+  });
+});
+
+describe('場面ごとの味つけ（2026-09-07。人間が決めた「スペシャル」）', () => {
+  it('味つけを指定していない場面では、何も起きない', () => {
+    // **既定は「何もしない」。** 場面を足したときに、うっかり演出が付かない
+    const { spots } = sceneRig('ouchi');
+    const flavor = new Flavor(spots.runtimes, undefined);
+    for (let f = 0; f < 60 * 3; f++) flavor.update(DT);
+
+    expect(flavor.getPropCount()).toBe(0);
+    expect(flavor.getCrossingCount()).toBe(0);
+    expect(flavor.getFootstepCount()).toBe(0);
+    expect(flavor.getMaxTiltRad()).toBe(0);
+    expect(flavor.group.children).toHaveLength(0);
+  });
+
+  it.each(ALL_SCENES)('%s: 味つけは隠れ場所を動かさない（当たり判定がずれない）', (id) => {
+    // 当たり判定は `worldPosition`（設定した座標）を投影して決まる。
+    // 見た目だけ動かすと「押したのに反応しない」に近づく（みずのなかの岩）。
+    // **傾けるのは許す**（中心が動かないので判定はずれない）
+    const { spots, flavor, advance } = sceneRig(id);
+    const before = spots.runtimes.map((s) => s.group.position.clone());
+    const world = spots.runtimes.map((s) => s.worldPosition.clone());
+
+    for (const spot of spots.runtimes) spots.tap(spot);
+    advance(4);
+
+    for (let i = 0; i < spots.runtimes.length; i++) {
+      const s = spots.runtimes[i];
+      expect(s.group.position.distanceTo(before[i]), `${id}/${s.config.id}`).toBe(0);
+      expect(s.worldPosition.distanceTo(world[i]), `${id}/${s.config.id}`).toBe(0);
+    }
+    void flavor;
+  });
+
+  it.each(ALL_SCENES)('%s: 味つけの傾きでも、隠れている体は覗けない（不変条件3）', (id) => {
+    // ==========================================================================
+    // **これが「場面ごとの味つけ」でいちばん危ないところ。**
+    // 隠れ場所を傾けると、隠しているふたと動物の見かけの関係が変わる。
+    // 実測（2026-09-07）: **うみ の かいそう は 0.75° で体が見えた。**
+    // だから常時のゆれ（`sway`）は飾りだけにして、隠れ場所を回すのは
+    // ため のもぞもぞ（1.7°）と地ひびき（2.9°）だけにしてある。
+    // ここでは**その2倍**を掛けて、余裕が残っていることまで見る。
+    // 新しい場面に `wobble` / `quake` を付けたら、ここが落ちて教える。
+    // ==========================================================================
+    const COLS = 15;
+    const ROWS = 15;
+    const tilt = maxSpotTiltRad(findScene(id).flavor) * 2;
+    const { spots, animals, camera, advance } = sceneRig(id);
+    advance(0.5);
+    if (tilt === 0) return; // 隠れ場所を回さない場面。上の全場面テストが見ている
+
+    const ray = new THREE.Raycaster();
+    const target = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const box = new THREE.Box3();
+
+    for (const sign of [1, -1]) {
+      for (const spot of spots.runtimes) spot.group.rotation.z = tilt * sign;
+      spots.group.updateWorldMatrix(true, true);
+
+      for (const spot of spots.runtimes) {
+        const slot = animals.getSlot(spot.config.id);
+        if (!slot) continue;
+        box.makeEmpty();
+        for (const child of slot.built.group.children) {
+          if (child === slot.built.hint) continue;
+          box.expandByObject(child);
+        }
+        let leaks = 0;
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            target.set(
+              box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / COLS,
+              box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / ROWS,
+              box.max.z
+            );
+            dir.subVectors(target, camera.position).normalize();
+            ray.set(camera.position, dir);
+            ray.far = Infinity;
+            const hits = ray.intersectObject(spots.group, true);
+            if (hits.length === 0) continue;
+            const first = hits[0].object;
+            if (isDescendantOf(first, slot.built.group) && !isDescendantOf(first, slot.built.hint)) {
+              leaks++;
+            }
+          }
+        }
+        expect(
+          leaks,
+          `${id}/${spot.config.id}: ${((tilt * sign * 180) / Math.PI).toFixed(2)}° 傾けたら ${leaks}/${COLS * ROWS} 点で体が見えた`
+        ).toBe(0);
+      }
+    }
+  });
+
+  it('ゆれる飾りは、必ず隠れ場所より奥にある（不変条件3 を壊せない位置）', () => {
+    // 手前に置くと、隠れている動物を覆って「見えている」を壊せてしまう。
+    // **奥にあれば原理的に起きない。** 位置で保証する
+    for (const scene of SCENES) {
+      const spots = new SpotSystem(scene.spots, scene.mode);
+      const flavor = new Flavor(spots.runtimes, scene.flavor, { seed: 1 });
+      const minSpotZ = Math.min(...scene.spots.map((s) => s.position[2]));
+      for (const child of flavor.group.children) {
+        expect(child.position.z, `${scene.id} の飾りが隠れ場所より手前`).toBeLessThan(minSpotZ);
+      }
+      flavor.dispose();
+    }
+  });
+
+  it('風は左から右へ渡る（いっせいに傾かない）', () => {
+    // 全部同じ位相にすると、風ではなく地震に見えた
+    const { spots } = sceneRig('soto');
+    const flavor = new Flavor(spots.runtimes, { sway: 'wind' }, { seed: 7 });
+    for (let f = 0; f < 60 * 2; f++) flavor.update(DT);
+
+    expect(flavor.getPropCount()).toBe(PROP_COUNT);
+    const tilts = flavor.group.children.map((c) => c.rotation.z);
+    const spread = Math.max(...tilts) - Math.min(...tilts);
+    expect(spread).toBeGreaterThan(0.05);
+    expect(flavor.getMaxPropTiltRad()).toBeLessThanOrEqual(WIND_AMP_RAD + 1e-6);
+    flavor.dispose();
+  });
+
+  it('水のゆれは、風より深く、上限を超えない', () => {
+    const { spots } = sceneRig('umi');
+    const flavor = new Flavor(spots.runtimes, { sway: 'water' }, { seed: 7 });
+    let max = 0;
+    for (let f = 0; f < 60 * 30; f++) {
+      flavor.update(DT);
+      max = Math.max(max, flavor.getMaxPropTiltRad());
+    }
+    expect(max).toBeGreaterThan(WIND_AMP_RAD);
+    expect(max).toBeLessThanOrEqual(WATER_AMP_RAD + WATER_AMP2_RAD + 1e-6);
+    flavor.dispose();
+  });
+
+  it('もぞもぞは ため のあいだだけ（出ているあいだは傾かない）', () => {
+    const { spots } = sceneRig('ouchi');
+    const flavor = new Flavor(spots.runtimes, { wobble: true }, { seed: 3 });
+    const spot = spots.runtimes[0];
+
+    spots.tap(spot);
+    let duringTame = 0;
+    let afterTame = 0;
+    for (let f = 0; f < 60 * 3; f++) {
+      spots.update(DT);
+      flavor.update(DT);
+      const tilt = Math.abs(spot.group.rotation.z);
+      if (spot.state === 'appearing' && spot.delay > 0) duringTame = Math.max(duringTame, tilt);
+      else afterTame = Math.max(afterTame, tilt);
+    }
+    expect(duringTame).toBeGreaterThan(0);
+    expect(duringTame).toBeLessThanOrEqual(WOBBLE_AMP_RAD + 1e-6);
+    expect(afterTame).toBe(0);
+    flavor.dispose();
+  });
+
+  it('地ひびきは出きった瞬間に始まり、0.45秒で止まる', () => {
+    const { spots } = sceneRig('kyoryu');
+    const flavor = new Flavor(spots.runtimes, { quake: true }, { seed: 3 });
+    const spot = spots.runtimes[0];
+
+    spots.tap(spot);
+    let startedAt = Infinity;
+    let endedAt = Infinity;
+    for (let f = 0; f < 60 * 3; f++) {
+      spots.update(DT);
+      flavor.update(DT);
+      if (startedAt === Infinity && flavor.isQuaking()) startedAt = f * DT;
+      if (startedAt !== Infinity && endedAt === Infinity && !flavor.isQuaking()) endedAt = f * DT;
+    }
+    // §4-3 の山（0.50s）で始まる。1フレームぶんの丸めを許す
+    expect(startedAt).toBeGreaterThanOrEqual(PEAK_AT_SEC - DT);
+    expect(startedAt).toBeLessThanOrEqual(PEAK_AT_SEC + DT);
+    expect(endedAt - startedAt).toBeLessThanOrEqual(QUAKE_SEC + DT);
+    flavor.dispose();
+  });
+
+  it('足音は ため のあいだに2回だけ', () => {
+    const { spots } = sceneRig('kyoryu');
+    const flavor = new Flavor(spots.runtimes, { footstep: true }, { seed: 3 });
+    const spot = spots.runtimes[0];
+    const at: number[] = [];
+    flavor.onFootstep(() => at.push(spot.reveal));
+
+    spots.tap(spot);
+    for (let f = 0; f < 60 * 3; f++) {
+      spots.update(DT);
+      flavor.update(DT);
+    }
+    expect(at).toHaveLength(FOOTSTEP_AT_SEC.length);
+    // **出はじめる前に鳴りきる。** 出てから鳴ると「誰が歩いたのか」が分からない
+    for (const reveal of at) expect(reveal).toBe(0);
+    flavor.dispose();
+  });
+
+  it('横切るものは、画面の外から入って外へ抜ける（途中で消えない）', () => {
+    const { spots } = sceneRig('soto');
+    const flavor = new Flavor(spots.runtimes, { crossing: 'butterfly' }, { seed: 11 });
+    const obj = flavor.group.children[0];
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let visibleFrames = 0;
+    for (let f = 0; f < Math.round((CROSS_SEC + CROSS_GAP_SEC * 2) / DT); f++) {
+      flavor.update(DT);
+      if (!obj.visible) continue;
+      visibleFrames++;
+      minX = Math.min(minX, obj.position.x);
+      maxX = Math.max(maxX, obj.position.x);
+    }
+    expect(flavor.getCrossingCount()).toBeGreaterThanOrEqual(1);
+    expect(visibleFrames).toBeGreaterThan(0);
+    // 端から端まで。**途中で消えたら、見ている子には「消えた」に見える**
+    expect(minX).toBeLessThanOrEqual(-CROSS_X * 0.9);
+    expect(maxX).toBeGreaterThanOrEqual(CROSS_X * 0.9);
+    flavor.dispose();
+  });
+
+  it('捨てたら、傾きが戻って何も残らない', () => {
+    const { spots } = sceneRig('kyoryu');
+    const flavor = new Flavor(spots.runtimes, { quake: true, sway: 'wind', crossing: 'butterfly' }, { seed: 3 });
+    spots.tap(spots.runtimes[0]);
+    for (let f = 0; f < 60; f++) {
+      spots.update(DT);
+      flavor.update(DT);
+    }
+    flavor.dispose();
+
+    expect(flavor.group.children).toHaveLength(0);
+    for (const s of spots.runtimes) expect(s.group.rotation.z).toBe(0);
   });
 });
 

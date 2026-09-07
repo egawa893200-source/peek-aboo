@@ -22,6 +22,7 @@ import { disposeObject3D } from '../peekaboo/SpotShapes';
 import { SpotShuffle } from '../peekaboo/SpotShuffle';
 import { SpotSystem } from '../peekaboo/SpotSystem';
 import { createBackdropTexture, createContactShadow, createShadowTexture } from './Backdrop';
+import { Flavor } from './Flavor';
 import type { SceneConfig } from '../types';
 
 export class SceneRoot {
@@ -34,6 +35,8 @@ export class SceneRoot {
   readonly shuffle: SpotShuffle | null;
   /** §4-6。モードAでも空の場所は起きないが、**外さない**（不変条件3b の保険） */
   readonly empty: EmptySpot;
+  /** 場面ごとの味つけ（`SceneConfig.flavor`）。何も指定が無ければ何も起きない */
+  readonly flavor: Flavor;
 
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
@@ -63,6 +66,7 @@ export class SceneRoot {
     chase: ChaseSystem | null,
     shuffle: SpotShuffle | null,
     empty: EmptySpot,
+    flavor: Flavor,
     floor: THREE.Mesh,
     backdrop: THREE.Texture | null,
     shadowTexture: THREE.Texture | null,
@@ -78,9 +82,12 @@ export class SceneRoot {
     this.chase = chase;
     this.shuffle = shuffle;
     this.empty = empty;
+    this.flavor = flavor;
     this.floor = floor;
     this.group.add(floor);
     this.group.add(spots.group);
+    // 横切るものは隠れ場所より奥に置く（`Flavor` が z を決めている）
+    this.group.add(flavor.group);
   }
 
   /**
@@ -105,9 +112,11 @@ export class SceneRoot {
     // 背景。素材があればそれを、無ければ手続き生成のグラデーションを敷く（道D）。
     // **単色の板をやめる。** 空も地面も奥行きも無いのが「安っぽさ」の正体だった。
     // `document` が無い環境（単体テスト）では単色のまま落とす（例外を投げない）
+    // 場面ごとの空（2026-09-07）。**指定が無ければ従来どおりの夜空**
+    const sky = config.sky ?? ['#3d5c8c', '#0b1526'];
     const backdrop =
       !background && typeof document !== 'undefined'
-        ? createBackdropTexture('#3d5c8c', '#0b1526')
+        ? createBackdropTexture(sky[0], sky[1])
         : null;
     const floorMat = new THREE.MeshStandardMaterial({
       color: backdrop ? 0xffffff : 0x2a3550,
@@ -116,7 +125,11 @@ export class SceneRoot {
       ...(background ? { map: background } : {}),
       ...(backdrop ? { map: backdrop } : {}),
     });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), floorMat);
+    // **画面いっぱいを覆う大きさにする**（2026-09-07）。
+    // 14×10 では縦が足りず、上下に地の色（レンダラのクリア色）の帯が出ていた。
+    // 実測: この奥行き（z = -1.6、カメラから 8.8）で画面に入るのは
+    // 縦 ±5.71・横 ±2.80 なので、縦は 11.4 以上が要る。三角形は2枚のまま
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), floorMat);
     // 隠れ場所より奥に、少しだけ手前に倒して敷く。
     // 真後ろの垂直な板にすると、隠れ場所との前後関係が読めない
     floor.position.set(0, 0, -1.6);
@@ -189,7 +202,13 @@ export class SceneRoot {
     const empty = new EmptySpot(spots);
     spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
 
-    return new SceneRoot(config, spots, animals, chase, shuffle, empty, floor, backdrop, shadowTexture, shadows, cutouts);
+    // 場面ごとの味つけ（2026-09-07）。**`config.flavor` を読むだけ。**
+    // 場面 id で分岐しない（`Flavor.ts` 冒頭の理由）
+    const flavor = new Flavor(spots.runtimes, config.flavor, {
+      ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed ^ 0x1b873593 } : {}),
+    });
+
+    return new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdrop, shadowTexture, shadows, cutouts);
   }
 
   /**
@@ -204,6 +223,9 @@ export class SceneRoot {
     this.spots.update(dt);
     this.chase?.update(dt);
     this.empty.update(dt);
+    // **`SpotSystem` のあと。** 状態の遷移（ため のはじまり・登場の山）を
+    // 同じフレームで拾う。先に呼ぶと足音と地ひびきが1フレーム遅れる
+    this.flavor.update(dt);
     this.animals.update(dt, this.spots, camera);
   }
 
@@ -218,6 +240,7 @@ export class SceneRoot {
     // 自分で作ったものは自分で捨てる（不変条件8）。
     // 影の板は `SpotSystem` の子だが、あちらは捨ててくれない
     for (const shadow of this.shadows) disposeObject3D(shadow, { keepTextures: true });
+    this.flavor.dispose();
     this.backdrop?.dispose();
     this.shadowTexture?.dispose();
     this.empty.dispose();

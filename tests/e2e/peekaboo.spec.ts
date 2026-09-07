@@ -721,7 +721,18 @@ test.describe('全場面', () => {
 
       await page.waitForTimeout(900);
       const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());
-      lines.push(`  ${id.padEnd(8)} 三角形 ${String(info.triangles).padStart(6)}  draw call ${info.calls}`);
+      // 場面ごとの味つけ（2026-09-07）。**数値は記録するだけ**で合否にしない。
+      // 合否にするのは「隠れ場所を動かしていないこと」（下の expect）だけ
+      const flavor = await page.evaluate(() => window.__peekaboo.getFlavor());
+      lines.push(
+        `  ${id.padEnd(9)} 三角形 ${String(info.triangles).padStart(6)}  draw call ${String(info.calls).padStart(3)}` +
+          `  足音 ${flavor?.footsteps ?? 0}  横切り ${flavor?.crossings ?? 0}` +
+          `  傾き ${(((flavor?.maxTiltRad ?? 0) * 180) / Math.PI).toFixed(2)}°`
+      );
+
+      // 味つけが隠れ場所を傾けすぎていないこと。
+      // 単体テストが「この2倍まで体が覗けない」ことを場面ごとに見ている
+      expect(((flavor?.maxTiltRad ?? 0) * 180) / Math.PI, `${id} の傾き`).toBeLessThan(3.5);
 
       // **fps は合否にしない**（§10-2）。GPU に依存しない量だけを見る
       expect(info.triangles, id).toBeGreaterThan(0);

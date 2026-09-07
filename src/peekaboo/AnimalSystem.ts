@@ -483,7 +483,7 @@ export const EXPECTED_HINT_EXPOSURE = HINT_EXPOSURE;
  * **node（単体テスト）とサーバ描画では `matchMedia` が無い。**
  * 例外を投げずに false へ落とす（§2 エラー画面を出さない）。
  */
-function detectReducedMotion(): boolean {
+export function detectReducedMotion(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
   try {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;

@@ -59,6 +59,10 @@ const HIT_RADIUS_PX = 120;
 
 const OUCHI: SceneConfig = {
   id: "ouchi",
+  // おうち。夕方の部屋。暖かい茶
+  sky: ["#6a5240", "#22150f"],
+  // おうち。ふとんや箱が **もぞもぞ動いてから**開く（ため の 0.15秒）
+  flavor: { wobble: true },
   label: "おうち",
   mode: "hideout",
   // 素材はまだ1つも無い。null なら手続き生成に落ちる（不変条件7）
@@ -131,6 +135,11 @@ const OUCHI: SceneConfig = {
  */
 const NOHARA: SceneConfig = {
   id: "nohara",
+  // のはら。昼の空から草の色へ
+  sky: ["#7fb6d8", "#2f4a26"],
+  // のはら。草がひとわたり揺れる。**横切るものは置かない**
+  // （うさぎを目で追う場面なので、ほかに動くものがあると気が散る）
+  flavor: { sway: "wind" },
   label: "のはら",
   mode: "chase",
   backgroundUrl: null,
@@ -188,6 +197,10 @@ const NOHARA: SceneConfig = {
  */
 const SOTO: SceneConfig = {
   id: "soto",
+  // そと。昼の空から草の色へ
+  sky: ["#6aa8d8", "#2b4522"],
+  // そと。風が左から右へ渡り、ときどきちょうちょが横切る
+  flavor: { sway: "wind", crossing: "butterfly", wobble: true },
   label: "そと",
   mode: "hideout",
   backgroundUrl: null,
@@ -241,6 +254,10 @@ const SOTO: SceneConfig = {
  */
 const UMI: SceneConfig = {
   id: "umi",
+  // うみ。水の中。上が明るく、下は深い
+  sky: ["#2e7ea6", "#04202f"],
+  // うみ。ゆっくり漂って、ときどき小魚の群れが横切る
+  flavor: { sway: "water", crossing: "fish" },
   label: "うみ",
   mode: "hideout",
   backgroundUrl: null,
@@ -290,6 +307,10 @@ const UMI: SceneConfig = {
  */
 const NOUJOU: SceneConfig = {
   id: "noujou",
+  // のうじょう。空から土の色へ
+  sky: ["#8ab0cc", "#3a2c19"],
+  // のうじょう。風と、ため のもぞもぞ
+  flavor: { sway: "wind", wobble: true },
   label: "のうじょう",
   mode: "hideout",
   backgroundUrl: null,
@@ -332,6 +353,10 @@ const NOUJOU: SceneConfig = {
 
 const DOBUTSUEN: SceneConfig = {
   id: "dobutsuen",
+  // どうぶつえん。明るい昼
+  sky: ["#93bdd0", "#3b4a26"],
+  // どうぶつえん。ぞうやきりんの重さを足音で出す（ため のあいだに2回）
+  flavor: { sway: "wind", footstep: true },
   label: "どうぶつえん",
   mode: "hideout",
   backgroundUrl: null,
@@ -374,6 +399,11 @@ const DOBUTSUEN: SceneConfig = {
 
 const KYORYU: SceneConfig = {
   id: "kyoryu",
+  // きょうりゅう。火山の夕暮れ
+  sky: ["#a05a30", "#241108"],
+  // きょうりゅう。足音のあと、出きった瞬間に地ひびき。
+  // **明滅ではなく動き**なので不変条件6 には触れない
+  flavor: { quake: true, footstep: true },
   label: "きょうりゅう",
   mode: "hideout",
   backgroundUrl: null,
