@@ -569,9 +569,21 @@ test.describe('§4-5 移動モード', () => {
       const api = window.__peekaboo;
       api.tap(start.x, start.y);
 
-      // 移動が始まるまで待つ
-      const t0 = performance.now();
-      while (performance.now() - t0 < 4000) {
+      // 移動が始まるまで待つ。
+      //
+      // **ここも壁時計で待たないこと**（§10-2 / CLAUDE.md）。
+      // 移動が始まるのは更新時計で 1.70秒（§4-5 の表）だが、
+      // GPU の無い環境では 1フレームに最大3ステップなので、
+      // 壁時計 4000ms で届くかどうかがその日の描画の重さ次第になる。
+      // 実測（2026-09-07）: 隠れ場所に模様を貼る前は 2485ms、貼ったあとは
+      // 3039ms かかっていて、上限 4000ms の余裕を食っていた。
+      // 更新時計なら、どちらでも 1.70秒でぴたりと揃う
+      const wait0 = api.getSimulatedSeconds();
+      const guard0 = performance.now();
+      while (
+        api.getSimulatedSeconds() - wait0 < 4.0 &&
+        performance.now() - guard0 < 60_000
+      ) {
         await new Promise((r) => requestAnimationFrame(r));
         if (api.getChase()!.moving) break;
       }

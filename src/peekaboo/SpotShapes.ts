@@ -214,11 +214,12 @@ function plate(
  * データの打ち間違いで隠れ場所が1つ消えると、そこは「押しても無反応」になる。
  */
 export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape {
-  const shape = buildSpotShape(kind, spotY, spotX);
-  fitBackPlates(shape.group);
   // **隠れ場所ごとに種を変える。** 同じ形が5つ並ぶ のはら で、
-  // まったく同じ模様だと「判で押した」ように見える
+  // まったく同じ模様・まったく同じ輪郭だと「判で押した」ように見える
+  // （判定の実測: 5株の輪郭の重なり IoU が 0.847〜0.903）
   const seed = (Math.round((spotX + 8) * 977) * 131 + Math.round((spotY + 8) * 977)) >>> 0;
+  const shape = buildSpotShape(kind, spotY, spotX, seed);
+  fitBackPlates(shape.group);
   applySurface(shape.group, kind, seed);
   return shape;
 }
@@ -375,7 +376,19 @@ function applySurface(group: THREE.Group, kind: SpotKind, seed: number): void {
   });
 }
 
-function buildSpotShape(kind: SpotKind, spotY: number, spotX: number): SpotShape {
+/** 種から作る乱数（`SpotTextures` と同じ mulberry32）。**共有の乱数を使わない** */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildSpotShape(kind: SpotKind, spotY: number, spotX: number, seed: number): SpotShape {
   const palette = PALETTES[kind] ?? PALETTES.box;
   switch (kind) {
     case 'curtain':
@@ -385,7 +398,7 @@ function buildSpotShape(kind: SpotKind, spotY: number, spotX: number): SpotShape
     case 'door':
       return createDoor(palette);
     case 'bush':
-      return createBush(palette);
+      return createBush(palette, seed);
     case 'rock':
       return createRock(palette, spotY);
     case 'water':
@@ -616,8 +629,12 @@ function createDoor(p: Palette): SpotShape {
  * 葉の房は左右に開く。カーテンと同じ理屈で、**中央に隙間を空けない**
  * （空けると中の体が丸見えになる）。
  */
-function createBush(p: Palette): SpotShape {
+function createBush(p: Palette, seed: number): SpotShape {
   const group = new THREE.Group();
+  // 株ごとに葉の並びを少しだけ変える。**塞いでいる部品（mound・skirt・
+  // 中央の板）には触らない**ので、隠れているときの遮蔽は変わらない。
+  // 大きさは**大きくする側にしか振らない**（縮めると隙間が開く）
+  const rng = seededRandom(seed);
   const leaf = standard(p.cover, 0.95);
   const deep = standard(p.body, 0.95);
 
@@ -643,8 +660,14 @@ function createBush(p: Palette): SpotShape {
     for (let i = 0; i < blobs.length; i++) {
       const blob = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), leaf);
       blob.name = `bush.leaf.${side < 0 ? 'l' : 'r'}.${i}`;
-      blob.scale.set(HALF_W * 0.42, HALF_H * blobs[i][3], 0.14);
-      blob.position.set(blobs[i][0], blobs[i][1], FRONT_Z + blobs[i][2]);
+      const grow = 1 + rng() * 0.14;
+      blob.scale.set(HALF_W * 0.42 * grow, HALF_H * blobs[i][3] * grow, 0.14);
+      blob.position.set(
+        blobs[i][0] + (rng() - 0.5) * 0.07,
+        blobs[i][1] + (rng() - 0.5) * 0.07,
+        FRONT_Z + blobs[i][2]
+      );
+      blob.rotation.z = (rng() - 0.5) * 0.5;
       bunch.add(blob);
     }
     // **中央でしっかり重ねる。** 0.03 しか寄せていなかったときは、
