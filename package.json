@@ -18,7 +18,8 @@
     "match-score": "node scripts/match-score.mjs",
     "cutouts": "node scripts/make-cutouts.mjs",
     "backgrounds": "node scripts/make-backgrounds.mjs",
-    "visual:shot": "node scripts/visual-shot.mjs"
+    "visual:shot": "node scripts/visual-shot.mjs",
+    "visual:score": "node scripts/visual-score.mjs"
   },
   "dependencies": {
     "three": "^0.185.1"
