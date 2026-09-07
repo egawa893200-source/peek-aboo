@@ -168,8 +168,11 @@ const PALETTES: Record<SpotKind, Palette> = {
   bush: { body: 0x568a52, cover: 0x6fa563, accent: 0x40663c },
   // **灰色そのままにしない**（2026-09-07）。彩度 C\* が 3 しかなく、
   // 人が描いた背景（そと 45.07・きょうりゅう 30 台）の中で
-  // 「そこだけ色が抜けている」ように見えていた。実際の岩も土の色を持つ
-  rock: { body: 0x8b8174, cover: 0xaba090, accent: 0x625749 },
+  // 「そこだけ色が抜けている」ように見えていた。実際の岩も土の色を持つ。
+  // 砂岩の色まで寄せると、背景画との彩度差が
+  // -30.6/-27.6/-25.6/-24.1/-23.8 → -18.1/-14.4/-12.2/-11.9/-11.9 になり、
+  // どうぶつえん と きょうりゅう は基準（|ΔC*| ≤ 12）に入った
+  rock: { body: 0x97815f, cover: 0xbaa47b, accent: 0x6a5940 },
   water: { body: 0x2f6f96, cover: 0x4a97bf, accent: 0x9fd8ea },
   blanket: { body: 0xdfe6ef, cover: 0x4f83cc, accent: 0x3f6091 },
   hollow: { body: 0x74492a, cover: 0x986a3c, accent: 0x432c18 },
