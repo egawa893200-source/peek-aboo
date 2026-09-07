@@ -29,6 +29,7 @@ import {
   createContactShadow,
   createShadowTexture,
 } from './Backdrop';
+import { DROP_SHADOW } from '../data/look';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
 
 /** 行き先の隠れ場所からこれだけ離れていないと、足あとを落とさない */
@@ -37,6 +38,12 @@ import type { SceneConfig } from '../types';
 
 /** 足あとの位置を取るための使い捨て。**毎フレーム new をしない**（§10-3） */
 const _footAt = new THREE.Vector3();
+/** 落ち影を合わせるときの使い捨て。同上 */
+const _shadowBox = new THREE.Box3();
+const _shadowInverse = new THREE.Matrix4();
+const _shadowAt = new THREE.Vector3();
+/** 楕円の影が似合う隠れ場所。それ以外は角丸の四角にする */
+const ROUND_SHAPES: ReadonlySet<string> = new Set(['bush', 'rock', 'pot', 'egg']);
 
 export class SceneRoot {
   readonly group = new THREE.Group();
@@ -70,6 +77,13 @@ export class SceneRoot {
   /** 手続き生成の背景と影。**`AssetLoader` は持っていないので自分で捨てる** */
   private readonly backdrop: THREE.Texture | null;
   private readonly shadowTexture: THREE.Texture | null;
+  /** 角のある隠れ場所ぶんの落ち影。丸いものとは別のテクスチャを使う */
+  private readonly shadowRectTexture: THREE.Texture | null;
+  /**
+   * いま影を合わせてある形。**入れ替わったら測り直す。**
+   * たまごに入れ替わると外接箱が変わるので、合わせ直さないと影だけ元の形のまま残る
+   */
+  private readonly shadowFitted: (object | null)[] = [];
   /**
    * 接地影の板。
    *
@@ -92,12 +106,14 @@ export class SceneRoot {
     backdropImage: THREE.Mesh | null,
     backdrop: THREE.Texture | null,
     shadowTexture: THREE.Texture | null,
+    shadowRectTexture: THREE.Texture | null,
     shadows: readonly THREE.Mesh[],
     cutouts: ReadonlyMap<string, THREE.Texture>
   ) {
     this.cutouts = cutouts;
     this.backdrop = backdrop;
     this.shadowTexture = shadowTexture;
+    this.shadowRectTexture = shadowRectTexture;
     this.shadows = shadows;
     this.spots = spots;
     this.animals = animals;
@@ -189,15 +205,13 @@ export class SceneRoot {
     // 光源1つ・カメラ固定なので影の形は動かない。動かない影を毎フレーム
     // 描き直す理由が無いし、shadowMap はスマホでいちばん高くつく
     let shadowTexture: THREE.Texture | null = null;
+    let shadowRectTexture: THREE.Texture | null = null;
     const shadows: THREE.Mesh[] = [];
     if (typeof document !== 'undefined') {
-      shadowTexture = createShadowTexture();
+      shadowTexture = createShadowTexture('ellipse');
+      shadowRectTexture = createShadowTexture('rect');
       for (const runtime of spots.runtimes) {
-        const shadow = createContactShadow(shadowTexture, runtime.shape.mouthWidth * 1.9);
-        // 隠れ場所の底より少し下、少し奥。**手前に出さないこと。**
-        // 出すと動物の足元に黒い帯が乗る。
-        // 板は立てたまま（寝かせると見下ろし 11.8° では見えない）
-        shadow.position.set(0, runtime.shape.coverBottomY - 0.1, -0.3);
+        const shadow = createContactShadow(shadowTexture, 1, 1);
         runtime.group.add(shadow);
         shadows.push(shadow);
       }
@@ -302,7 +316,7 @@ export class SceneRoot {
       }
     }
 
-    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadows, cutouts);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts);
     root.cameo = cameoBuilt;
     root.shadowShapes = shadowShapes;
     return root;
@@ -316,7 +330,64 @@ export class SceneRoot {
    * 逆にすると移動の開始が毎回1フレーム遅れる（4.80秒の表からずれる）。
    * `AnimalSystem` は最後。両者が決めた `reveal` と位置を見て絵にする。
    */
+  /**
+   * 落ち影を、いまの隠れ場所の外接箱に合わせる。
+   *
+   * **形が入れ替わったときだけ測り直す**（たまご／つぼみ）。
+   * 毎フレーム `Box3` を取ると重いので、前に合わせた形と同じなら何もしない。
+   * 参照を1つ比べるだけなので、毎フレーム呼んでよい（§10-3 の new もしない）。
+   */
+  private fitShadows(camera: THREE.Camera): void {
+    for (let i = 0; i < this.shadows.length; i++) {
+      const runtime = this.spots.runtimes[i];
+      const shadow = this.shadows[i];
+      if (!runtime || !shadow) continue;
+      if (this.shadowFitted[i] === runtime.shape) continue;
+      this.shadowFitted[i] = runtime.shape;
+
+      // **ワールド座標のまま使わないこと。**
+      // 影は `runtime.group`（＝隠れ場所の位置に置かれている）の子なので、
+      // ワールドの中心 y をそのまま入れると位置が二重に足される。
+      // 上の段（y=+1.90）の影が +3.80 に飛んで、画面から消えていた
+      // （実測: 接地の暗さ V5 が 6箇所でちょうど 0.00 になった）
+      _shadowBox.setFromObject(runtime.shape.group);
+      _shadowInverse.copy(runtime.group.matrixWorld).invert();
+      _shadowBox.applyMatrix4(_shadowInverse);
+      // **芯は本体と同じ大きさ。まわりに `blur` だけ滲ませる**（倍率では隠れる）
+      const width = _shadowBox.max.x - _shadowBox.min.x + DROP_SHADOW.blur * 2;
+      const height = _shadowBox.max.y - _shadowBox.min.y + DROP_SHADOW.blur * 2;
+      const centerY = (_shadowBox.max.y + _shadowBox.min.y) / 2;
+
+      // ==================================================================
+      // **上の段と下の段で、見かけの上下がひっくり返る。**
+      //
+      // 影は隠れ場所より `z` だけ奥にあるので、カメラから見ると中心（y=0.3）へ
+      // 寄って見える。上の段（y=+1.90）では下へ、下の段（y=-2.00）では**上へ**。
+      // ずらす量を同じにしていたら、下の段では視差が食ってしまい、
+      // 影が本体の裏に隠れた（実測: 接地の暗さ V5 が
+      // 上の段 20〜28 に対して下の段 0.5〜2.3）。
+      // CLAUDE.md「『縁の高さ』と『縁に見える高さ』は違う」と同じ話。
+      //
+      // だから**見かけの位置で指定して、ローカル座標に逆算する**。
+      // ==================================================================
+      const depth = camera.position.z / (camera.position.z - DROP_SHADOW.z);
+      runtime.group.getWorldPosition(_shadowAt);
+      const wantWorldY = _shadowAt.y + centerY + DROP_SHADOW.offsetY;
+      const localY = (wantWorldY - camera.position.y) / depth - _shadowAt.y + camera.position.y;
+
+      shadow.geometry.dispose();
+      // 奥にあるぶん小さく見えるので、そのぶん大きく作る
+      shadow.geometry = new THREE.PlaneGeometry(width / depth, height / depth);
+      // **角のあるものに楕円の影を付けない。** 形が合っていないと
+      // 「別のものが後ろに置いてある」ように見える
+      const texture = ROUND_SHAPES.has(runtime.shapeKind) ? this.shadowTexture : this.shadowRectTexture;
+      if (texture) (shadow.material as THREE.MeshBasicMaterial).map = texture;
+      shadow.position.set(DROP_SHADOW.offsetX / depth, localY, DROP_SHADOW.z);
+    }
+  }
+
   update(dt: number, camera: THREE.Camera): void {
+    this.fitShadows(camera);
     this.spots.update(dt);
     this.chase?.update(dt);
     this.trackFootprints(dt);
@@ -383,6 +454,7 @@ export class SceneRoot {
     }
     this.backdrop?.dispose();
     this.shadowTexture?.dispose();
+    this.shadowRectTexture?.dispose();
     this.empty.dispose();
     this.animals.dispose();
     this.spots.dispose();

@@ -65,8 +65,20 @@ export function createBackdropTexture(top: string, bottom: string): THREE.Canvas
   return tex;
 }
 
-/** 接地影。中心が濃く、外へ向かって消える楕円 */
-export function createShadowTexture(): THREE.CanvasTexture {
+/**
+ * 落ち影。
+ *
+ * ==========================================================================
+ * **中身の形に合わせる**（2026-09-07）。
+ * 楕円1種類で全部に使っていたら、判定で「形の違う2つの隠れ場所に、
+ * 寸法がほぼ同じ（差 3px・2px）ぼやけた楕円が付いている」と指摘された。
+ * 実測でも、うえきばちの影は本体の 2.15倍の幅があった。
+ *
+ * 角のある隠れ場所（はこ・とびら・カーテン・ふとん・すいめん・きのほら）は
+ * 角丸の四角、丸いもの（くさむら・いわ・うえきばち・たまご）は楕円にする。
+ * ==========================================================================
+ */
+export function createShadowTexture(shape: 'ellipse' | 'rect' = 'ellipse'): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = SHADOW_SIZE;
   canvas.height = SHADOW_SIZE;
@@ -74,14 +86,32 @@ export function createShadowTexture(): THREE.CanvasTexture {
   if (!ctx) return new THREE.CanvasTexture(canvas);
 
   const r = SHADOW_SIZE / 2;
-  const grad = ctx.createRadialGradient(r, r, 0, r, r, r);
-  // **真っ黒にしない。** 背景より少し暗い程度で足りる。
-  // 濃い影は「切り絵を紙に置いた」ように見える
-  grad.addColorStop(0, 'rgba(0,0,0,0.42)');
-  grad.addColorStop(0.55, 'rgba(0,0,0,0.16)');
-  grad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+  if (shape === 'ellipse') {
+    const grad = ctx.createRadialGradient(r, r, 0, r, r, r);
+    // **真っ黒にしない。** 背景より少し暗い程度で足りる。
+    // 濃い影は「切り絵を紙に置いた」ように見える
+    // **芯を広く取る。** 中心だけ濃い版は、本体の後ろに隠れて見えなかった
+    grad.addColorStop(0, 'rgba(0,0,0,0.44)');
+    grad.addColorStop(0.74, 'rgba(0,0,0,0.30)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+  } else {
+    // 角丸の四角を、外へ向かってぼかす。
+    // **輪郭線にしないこと**（縁だけ濃いと「枠」に見える）
+    // 滲む幅は、板の外側 9%（`DROP_SHADOW.blur` を足したぶん）に合わせる。
+    // ここを広く取りすぎると、影の芯が本体より小さくなって後ろに隠れる
+    const layers = 22;
+    for (let i = layers; i >= 1; i--) {
+      const t = i / layers;
+      const inset = t * r * 0.19;
+      const radius = r * 0.14;
+      ctx.fillStyle = `rgba(0,0,0,${(0.022).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.roundRect(inset, inset, SHADOW_SIZE - inset * 2, SHADOW_SIZE - inset * 2, radius);
+      ctx.fill();
+    }
+  }
 
   return new THREE.CanvasTexture(canvas);
 }
@@ -92,7 +122,7 @@ export function createShadowTexture(): THREE.CanvasTexture {
  * `shadowMap` は使わない（上の理由）。板に楕円を貼って、
  * 隠れ場所より少しだけ手前・少しだけ下に置くだけ。
  */
-export function createContactShadow(texture: THREE.Texture, width: number): THREE.Mesh {
+export function createContactShadow(texture: THREE.Texture, width: number, height: number): THREE.Mesh {
   const mat = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
@@ -103,7 +133,7 @@ export function createContactShadow(texture: THREE.Texture, width: number): THRE
   // この場面は隠れ場所が縦に並ぶ 2.5D の配置で、足元に地面が無い。
   // 水平に寝かせた楕円はカメラ（見下ろし 11.8°）から見て潰れて見えず、
   // 実際に1枚も見えなかった。板は立てたまま、少し下・少し奥に置く
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.62), mat);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), mat);
   mesh.name = 'contactShadow';
   mesh.renderOrder = -1;
   return mesh;

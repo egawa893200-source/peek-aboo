@@ -212,6 +212,7 @@ function plate(
  */
 export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape {
   const shape = buildSpotShape(kind, spotY, spotX);
+  fitBackPlates(shape.group);
   // **隠れ場所ごとに種を変える。** 同じ形が5つ並ぶ のはら で、
   // まったく同じ模様だと「判で押した」ように見える
   const seed = (Math.round((spotX + 8) * 977) * 131 + Math.round((spotY + 8) * 977)) >>> 0;
@@ -221,6 +222,65 @@ export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape
 
 /** 使い捨て。**毎フレーム走る道ではない**が、作法をそろえておく（§10-3） */
 const _shadeBox = new THREE.Box3();
+const _backBox = new THREE.Box3();
+
+/**
+ * 背板を、見えている本体の外接箱に収める。
+ *
+ * ==========================================================================
+ * 背板は「隠れている動物が後ろから透けないように塞ぐ板」で、
+ * 岩・水面・うえきばち・きのほら では本体より **1.6〜2.0倍** 大きく作ってあった。
+ *
+ * 表面のテクスチャを貼ったとたん、それが**平らな石板・茶色い板**として
+ * はっきり見えるようになった（判定でも baseline の時点で
+ * 「鉢・岩の後ろの背板が、はみ出した平らな長方形として見えている」
+ * ＝ soto/hachi 20.2%・umi/tsubo 14.6% が同一RGB と指摘されている）。
+ *
+ * **カメラは動物を最大 17° しか回り込まない**ので、
+ * 正面から見た本体の外接箱ぶんあれば、隙間はすべて塞げる。
+ * それより大きい部分は、ただの板として画面に出るだけ。
+ *
+ * たまごの背板（半楕円）は伸ばすと角が出るので触らない（`BoxGeometry` だけ）。
+ * ==========================================================================
+ */
+function fitBackPlates(group: THREE.Group): void {
+  const backs: THREE.Mesh[] = [];
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.isMesh && mesh.name.endsWith('.back') && mesh.geometry.type === 'BoxGeometry') {
+      backs.push(mesh);
+    }
+  });
+  if (backs.length === 0) return;
+
+  group.updateMatrixWorld(true);
+  _backBox.makeEmpty();
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh || backs.includes(mesh)) return;
+    _backBox.expandByObject(mesh);
+  });
+  if (_backBox.isEmpty()) return;
+
+  const wantW = _backBox.max.x - _backBox.min.x;
+  const wantH = _backBox.max.y - _backBox.min.y;
+  const centerX = (_backBox.max.x + _backBox.min.x) / 2;
+  const centerY = (_backBox.max.y + _backBox.min.y) / 2;
+
+  for (const back of backs) {
+    // **四角いままだと、丸い塊のまわりに板の角が残る。**
+    // 大きさを本体に合わせただけでは足りず、実機の絵で
+    // 岩とうえきばちの背後に灰色／茶色の長方形がはっきり見えていた。
+    // 楕円にすると、丸い塊（岩・鉢・くさむら）の裏に完全に隠れる。
+    // 四角い隠れ場所（はこ・とびら）は前面が不透明なので、
+    // 楕円でも隙間はできない（遮蔽のテストが見張っている）
+    const z = back.position.z;
+    back.geometry.dispose();
+    back.geometry = new THREE.CircleGeometry(0.5, 28);
+    back.scale.set(wantW, wantH, 1);
+    back.position.set(centerX, centerY, z);
+  }
+}
 const _shadeVec = new THREE.Vector3();
 
 /**
@@ -726,9 +786,18 @@ function createRock(p: Palette, spotY: number): SpotShape {
     // 板からはみ出して、外側の縁で覗けていた（局所 x = ±0.41〜0.49）。
     // **開いても、この板は動物を隠さない。** 板の上端は局所 0.30 で、
     // 出きった動物の足元（0.44 以上）より下にあるため
+    // **球より大きくしないこと**（2026-09-07）。
+    // W×1.1・H×1.1 にしていたら、背景の絵を入れたあとに
+    // **球の外側に灰色の長方形がはっきり見えた**。板は球より奥（z=0.17）に
+    // あるので、はみ出したぶんがそのまま空を背に出る。
+    // 覆う必要があるのは動物のいちばん広いところ（かに 1.22 ＝半幅 0.61）まで。
+    // 左右の板は中央へ 0.16 寄せてあるので、幅 W×0.78 で
+    // 局所 x = ±0.78 まで覆える。
+    // **高さは詰めないこと。** H×0.95 にしたら、絵を貼った うみ の いわ で
+    // 左右の縁の 5点（15×15 の格子）から体が覗いた（実測）
     const slab = plate(
       `rock.slab.${side < 0 ? 'l' : 'r'}`,
-      W * 1.1,
+      W * 0.78,
       H * 1.1,
       0.12,
       stone,
