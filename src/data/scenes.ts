@@ -57,8 +57,38 @@ import type { SceneConfig } from "../types";
  */
 const HIT_RADIUS_PX = 120;
 
+/*
+ * 隠れ場所の縦の位置（2026-09-07 に人間の指摘で広げた）。
+ *
+ * **±1.55 / −1.20 では、出きった動物が上の段に覆いかぶさっていた**
+ * （さる が きげあーす に 0.92×0.39 重なった。ほかに そと・うみ・
+ *  のうじょう・きょうりゅう でも起きていた）。
+ * 重ならないところまで動物を縮めると、下の段が 61〜97px しか見えなくなる。
+ * 上下に広げると、同じ「重なり 0」のまま動物が大きくなる。
+ *
+ * さらに隠れ場所そのものも大きくした（W 1.35→1.70 / H 1.05→1.35。
+ * 「動物が小さくなったように感じます。特にキリンやゾウ」と言われたため）。
+ * 実測（さる／きりん の見えている高さ）:
+ *
+ * ただし**上げすぎると、上の段の動物が画面の上で切れる**
+ * （+2.45 で ぞう の頭が切れた。`SCREEN_TOP_Y` を見ること）。
+ * 上下の段で見えている高さがそろうところを実測で選んだ:
+ *
+ *   上段 / 下段        いちばん小さい  平均   おうち上段  どうぶつえん下段
+ *   +2.45 / −1.95        76px         110px   76px       192px
+ *   +2.10 / −1.95        82px         118px   98px       172px
+ *   **+1.90 / −2.00**    82px         120px   98px       158px  ← これ
+ *   +1.75 / −2.05        82px         122px   98px       150px
+ *
+ * もとの +1.55 / −1.20 ＋ 小さい隠れ場所では 61〜97px（しかも重なりあり）。
+ */
+
 const OUCHI: SceneConfig = {
   id: "ouchi",
+  // おうち。夕方の部屋。暖かい茶
+  sky: ["#6a5240", "#22150f"],
+  // おうち。ふとんや箱が **もぞもぞ動いてから**開く（ため の 0.15秒）
+  flavor: { wobble: true, shadowPeek: true },
   label: "おうち",
   mode: "hideout",
   // 素材はまだ1つも無い。null なら手続き生成に落ちる（不変条件7）
@@ -68,7 +98,7 @@ const OUCHI: SceneConfig = {
     {
       id: "hako",
       kind: "box",
-      position: [-1.15, 1.55, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       // 1体だけ。同じ場所から別の動物が出る仕掛け（§6-2）は Phase 7
@@ -77,7 +107,7 @@ const OUCHI: SceneConfig = {
     {
       id: "kaaten",
       kind: "curtain",
-      position: [1.15, 1.55, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kotori"],
@@ -85,7 +115,7 @@ const OUCHI: SceneConfig = {
     {
       id: "huton",
       kind: "blanket",
-      position: [-1.15, -1.2, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["nezumi"],
@@ -93,7 +123,7 @@ const OUCHI: SceneConfig = {
     {
       id: "tobira",
       kind: "door",
-      position: [1.15, -1.2, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["inu"],
@@ -131,6 +161,11 @@ const OUCHI: SceneConfig = {
  */
 const NOHARA: SceneConfig = {
   id: "nohara",
+  // のはら。昼の空から草の色へ
+  sky: ["#7fb6d8", "#2f4a26"],
+  // のはら。草がひとわたり揺れる。**横切るものは置かない**
+  // （うさぎを目で追う場面なので、ほかに動くものがあると気が散る）
+  flavor: { sway: "wind", footprints: true, cameo: true },
   label: "のはら",
   mode: "chase",
   backgroundUrl: null,
@@ -140,7 +175,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa1",
       kind: "bush",
-      position: [-1.28, 1.75, 0],
+      position: [-1.28, 2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -148,7 +183,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa2",
       kind: "bush",
-      position: [1.28, 1.75, 0],
+      position: [1.28, 2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -164,7 +199,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa4",
       kind: "bush",
-      position: [-1.28, -1.45, 0],
+      position: [-1.28, -2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -172,7 +207,7 @@ const NOHARA: SceneConfig = {
     {
       id: "kusa5",
       kind: "bush",
-      position: [1.28, -1.45, 0],
+      position: [1.28, -2.1, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: [],
@@ -188,6 +223,15 @@ const NOHARA: SceneConfig = {
  */
 const SOTO: SceneConfig = {
   id: "soto",
+  // そと。昼の空から草の色へ
+  sky: ["#6aa8d8", "#2b4522"],
+  // そと。風が左から右へ渡り、ときどきちょうちょが横切る
+  flavor: {
+    sway: "wind",
+    crossing: "butterfly",
+    crossingLands: true,
+    wobble: true,
+  },
   label: "そと",
   mode: "hideout",
   backgroundUrl: null,
@@ -196,7 +240,7 @@ const SOTO: SceneConfig = {
     {
       id: "kusa",
       kind: "bush",
-      position: [-1.15, 1.55, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kaeru"],
@@ -204,7 +248,7 @@ const SOTO: SceneConfig = {
     {
       id: "iwa",
       kind: "rock",
-      position: [1.15, 1.55, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["risu"],
@@ -212,7 +256,7 @@ const SOTO: SceneConfig = {
     {
       id: "hora",
       kind: "hollow",
-      position: [-1.15, -1.2, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["harinezumi"],
@@ -220,7 +264,7 @@ const SOTO: SceneConfig = {
     {
       id: "hachi",
       kind: "pot",
-      position: [1.15, -1.2, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["chocho"],
@@ -241,6 +285,10 @@ const SOTO: SceneConfig = {
  */
 const UMI: SceneConfig = {
   id: "umi",
+  // うみ。水の中。上が明るく、下は深い
+  sky: ["#2e7ea6", "#04202f"],
+  // うみ。ゆっくり漂って、ときどき小魚の群れが横切る
+  flavor: { sway: "water", crossing: "fish", crossingLands: true, bubbles: true },
   label: "うみ",
   mode: "hideout",
   backgroundUrl: null,
@@ -249,7 +297,7 @@ const UMI: SceneConfig = {
     {
       id: "suimen",
       kind: "water",
-      position: [-1.15, 1.55, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kumanomi"],
@@ -257,7 +305,7 @@ const UMI: SceneConfig = {
     {
       id: "kaisou",
       kind: "bush",
-      position: [1.15, 1.55, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["tako"],
@@ -265,7 +313,7 @@ const UMI: SceneConfig = {
     {
       id: "umiiwa",
       kind: "rock",
-      position: [-1.15, -1.2, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["kani"],
@@ -273,7 +321,7 @@ const UMI: SceneConfig = {
     {
       id: "tsubo",
       kind: "pot",
-      position: [1.15, -1.2, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["pengin"],
@@ -290,6 +338,10 @@ const UMI: SceneConfig = {
  */
 const NOUJOU: SceneConfig = {
   id: "noujou",
+  // のうじょう。空から土の色へ
+  sky: ["#8ab0cc", "#3a2c19"],
+  // のうじょう。風と、ため のもぞもぞ
+  flavor: { sway: "wind", wobble: true, chorus: true, leftover: "egg" },
   label: "のうじょう",
   mode: "hideout",
   backgroundUrl: null,
@@ -298,7 +350,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "koya",
       kind: "door",
-      position: [-1.15, 1.55, 0],
+      position: [-1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["ushi"],
@@ -306,7 +358,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "wara",
       kind: "bush",
-      position: [1.15, 1.55, 0],
+      position: [1.15, 1.9, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["buta"],
@@ -314,7 +366,7 @@ const NOUJOU: SceneConfig = {
     {
       id: "saku",
       kind: "rock",
-      position: [-1.15, -1.2, 0],
+      position: [-1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["hitsuji"],
@@ -322,10 +374,103 @@ const NOUJOU: SceneConfig = {
     {
       id: "okego",
       kind: "pot",
-      position: [1.15, -1.2, 0],
+      position: [1.15, -2.0, 0],
       scale: 1.0,
       hitRadiusPx: HIT_RADIUS_PX,
       animals: ["niwatori"],
+    },
+  ],
+};
+
+const DOBUTSUEN: SceneConfig = {
+  id: "dobutsuen",
+  // どうぶつえん。明るい昼
+  sky: ["#93bdd0", "#3b4a26"],
+  // どうぶつえん。ぞうやきりんの重さを足音で出す（ため のあいだに2回）
+  flavor: { sway: "wind", footstep: true },
+  label: "どうぶつえん",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "iwaba",
+      kind: "rock",
+      position: [-1.15, 1.9, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["raion"],
+    },
+    {
+      id: "kigearth",
+      kind: "hollow",
+      position: [1.15, 1.9, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["zou"],
+    },
+    {
+      id: "takaki",
+      kind: "bush",
+      position: [-1.15, -2.0, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["kirin"],
+    },
+    {
+      id: "hachi",
+      kind: "pot",
+      position: [1.15, -2.0, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["saru"],
+    },
+  ],
+};
+
+const KYORYU: SceneConfig = {
+  id: "kyoryu",
+  // きょうりゅう。火山の夕暮れ
+  sky: ["#a05a30", "#241108"],
+  // きょうりゅう。足音のあと、出きった瞬間に地ひびき。
+  // **明滅ではなく動き**なので不変条件6 には触れない
+  flavor: { quake: true, footstep: true, leftover: "egg" },
+  label: "きょうりゅう",
+  mode: "hideout",
+  backgroundUrl: null,
+  ambientSound: null,
+  spots: [
+    {
+      id: "ooiwa",
+      kind: "rock",
+      position: [-1.15, 1.9, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["tirano"],
+    },
+    {
+      id: "shida",
+      kind: "bush",
+      position: [1.15, 1.9, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["torikera"],
+    },
+    {
+      id: "kikabu",
+      kind: "hollow",
+      position: [-1.15, -2.0, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["sutego"],
+    },
+    {
+      id: "tamago",
+      kind: "pot",
+      position: [1.15, -2.0, 0],
+      scale: 1.0,
+      hitRadiusPx: HIT_RADIUS_PX,
+      animals: ["putera"],
     },
   ],
 };
@@ -335,6 +480,8 @@ export const SCENES: readonly SceneConfig[] = [
   SOTO,
   UMI,
   NOUJOU,
+  DOBUTSUEN,
+  KYORYU,
   NOHARA,
 ];
 

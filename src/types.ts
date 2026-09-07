@@ -38,6 +38,14 @@ export interface SceneConfig {
   mode: SceneMode;
   /** null なら手続き生成（不変条件7） */
   backgroundUrl: string | null;
+  /**
+   * 手続き生成の背景のグラデーション（上・下）。省略すると既定の夜空。
+   *
+   * **場面ごとに変えるためだけのデータ。** 全部同じ #3d5c8c → #0b1526 だと、
+   * うみ も きょうりゅう も同じ場所に見える（「フィールドの安っぽさ」の一部）。
+   * `backgroundUrl` に絵を置いたらこちらは使われない
+   */
+  sky?: [string, string];
   ambientSound: string | null;
   /**
    * 隠れ場所。**必ず4箇所**（§5-3）。
@@ -46,6 +54,69 @@ export interface SceneConfig {
   spots: SpotConfig[];
   /** mode 'chase' のときだけ使う。ここに住む1体 */
   runner?: AnimalId;
+  /**
+   * 場面ごとの味つけ（2026-09-07。人間が決めた「場面ごとのスペシャル」）。
+   *
+   * **演出の実装は `scene/Flavor.ts` に1つずつ置き、場面はここで選ぶだけ。**
+   * `if (scene.id === 'kyoryu')` と書き始めると、動物を17体にしたときと
+   * 同じ壊れ方をする（分岐が散って、新しい場面で1箇所だけ入れ忘れる）。
+   */
+  flavor?: SceneFlavor;
+}
+
+/** 常時のゆれ。`wind` は左から右へ波が渡る。`water` は方向を持たない */
+export type SwayKind = 'wind' | 'water';
+/** 画面を横切るもの。**手続き生成だけで作る**（不変条件7） */
+export type CrossingKind = 'butterfly' | 'fish';
+
+/**
+ * 引っ込んだあと、その隠れ場所が入れ替わる先（2026-09-07 に人間が決めた）。
+ *
+ * **横に小さな飾りを置くのではなく、隠れ場所そのものを差し替える。**
+ * 「卵が小さく残っているが何にも意味がない」と実機で言われたため。
+ * つぼみ（`flower`）も作ったが、**花びらが出てきた動物を隠して**
+ * 見えている割合が 29% まで落ちたので取り下げた（判定は 55%）。
+ */
+export type LeftoverKind = 'egg';
+
+/** 場面ごとの味つけ。**どれも省略できる。省略した場面は何も起きない** */
+export interface SceneFlavor {
+  /** 隠れ場所がゆっくり傾き続ける */
+  sway?: SwayKind;
+  /** ときどき何かが画面を横切る */
+  crossing?: CrossingKind;
+  /** 登場の山で、隠れ場所がいっせいに揺れる（地ひびき） */
+  quake?: boolean;
+  /** ため のあいだに足音が2回。近づいてくるように間隔を詰める */
+  footstep?: boolean;
+  /** ため のあいだに隠れ場所がもぞもぞ動く */
+  wobble?: boolean;
+
+  /* --- ここから〈中〉〈大〉の案（2026-09-07。人間が「弱い」と言って足した） --- */
+
+  /**
+   * 横切るものが、どこかの隠れ場所にとまる。
+   * **とまった場所が「次に押してほしい場所」になる**（揺れて教える）
+   */
+  crossingLands?: boolean;
+  /** あぶくが上がり続ける。**押すと割れる**ので、外したタップにも返しが増える */
+  bubbles?: boolean;
+  /** ときどき、隠れ場所が順に少しだけ開いて鳴く（みんなで鳴く） */
+  chorus?: boolean;
+  /** 跳ねた跡に足あとが残って、ゆっくり消える（モードBだけ） */
+  footprints?: boolean;
+  /** 動物が引っ込んだあと、その場所に残るもの。次に押すと消える */
+  leftover?: LeftoverKind;
+  /**
+   * 隠れているあいだ、ときどき影だけがふわっと映る（誰が居るかは分からない）。
+   * **出ているあいだは絶対に出さない**（動物に影がかぶる）
+   */
+  shadowPeek?: boolean;
+  /**
+   * ときどき、もう1匹が別の隠れ場所から顔を出す（モードBだけ）。
+   * **追いかけっこの相手ではない。** 移動には一切関わらない脇役
+   */
+  cameo?: boolean;
 }
 
 /** 隠れ場所の形。開き方もこれで決まる */
@@ -58,7 +129,9 @@ export type SpotKind =
   | 'water' // 水面から顔を出す
   | 'blanket' // 布がめくれる
   | 'hollow' // 木の洞から
-  | 'pot'; // 植木鉢から
+  | 'pot' // 植木鉢から
+  // --- ここから §6 の「残るもの」。**隠れ場所そのものが入れ替わる** ---
+  | 'egg'; // たまご。上半分が横に倒れて開く
 
 export interface SpotConfig {
   id: string;
@@ -122,6 +195,12 @@ export interface AnimalConfig {
    * **`bodyPlan` / `headTop` / `snout` / `tail` を必ず指定すること。**
    * 省略すると耳も鼻も尾も無い塊になり、どの動物も同じ輪郭になる（§5-2）。
    */
+  /**
+   * 絵をそのまま貼るときの素材（道A）。`/animals/neko.webp` のような
+   * ルート絶対パス。**null なら手続き生成に落ちる**（不変条件7）。
+   * 読み込みは `SceneRoot` がまとめて行い、`AnimalSystem` に渡す。
+   */
+  cutoutUrl?: string | null;
   bodyPlan?: BodyPlan;
   headTop?: HeadTop;
   snout?: Snout;
@@ -148,7 +227,9 @@ export type BodyPlan =
   | 'octopus' // たこ。丸い頭＋足
   | 'crab' // かに。平たい体＋はさみ＋目の柄
   | 'insect' // むし。細い胴＋大きな羽
-  | 'frog'; // かえる。平たい体＋頭の上の目
+  | 'frog' // かえる。平たい体＋頭の上の目
+  | 'longneck' // きりん。胴＋長い首＋小さい頭＋4本脚
+  | 'dino'; // 二足の恐竜。大きな頭＋太い尾で釣り合う
 
 /** 頭の上に付くもの。耳だけでなく角やとさかもここ */
 export type HeadTop =
@@ -160,16 +241,19 @@ export type HeadTop =
   | 'tuftEars'
   | 'horns'
   | 'comb'
-  | 'antennae';
+  | 'antennae'
+  | 'bigEars' // ぞうの大きな耳。頭の横に平たく張る
+  | 'frill' // トリケラトプスのえりまき＋3本の角
+  | 'crest'; // プテラノドンの、後ろへ伸びるとさか
 
 /** 顔の前に出るもの */
-export type Snout = 'none' | 'muzzle' | 'point' | 'beak' | 'flat' | 'wide';
+export type Snout = 'none' | 'muzzle' | 'point' | 'beak' | 'flat' | 'wide' | 'trunk';
 
 /** 後ろに付くもの */
-export type TailShape = 'none' | 'thin' | 'bushy' | 'puff' | 'feather' | 'curl';
+export type TailShape = 'none' | 'thin' | 'bushy' | 'puff' | 'feather' | 'curl' | 'long';
 
 /** 体の表面。輪郭を大きく変えるものだけ持つ */
-export type Coat = 'plain' | 'spiky' | 'fluffy' | 'banded' | 'spotted';
+export type Coat = 'plain' | 'spiky' | 'fluffy' | 'banded' | 'spotted' | 'mane' | 'plates' | 'wings';
 
 /* ---- 状態 ---------------------------------------------------------------- */
 

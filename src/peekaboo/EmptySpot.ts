@@ -65,6 +65,7 @@ export class EmptySpot {
   private readonly runs = new Map<string, Run>();
   private readonly voiceFns: EmptyEvent[] = [];
   private readonly puffFns: EmptyEvent[] = [];
+  private readonly hintFns: EmptyEvent[] = [];
 
   /** 走らせたシーケンスの数。**押した回数と混ぜないこと**（連打では増えない） */
   private started = 0;
@@ -83,6 +84,17 @@ export class EmptySpot {
   /** ぽふっと煙 */
   onPuff(fn: EmptyEvent): void {
     this.puffFns.push(fn);
+  }
+
+  /**
+   * 正解の隠れ場所が揺れはじめた（§4-6 の 0.50s）。
+   *
+   * ここで「こっちこっち〜」と言う（2026-09-06 に人間が決めた）。
+   * **急かす声にしないこと。** 外れを「失敗」にしない（§4-6）。
+   * 押した場所そのものが正解だったときは鳴らない（揺らしてもいない）
+   */
+  onHint(fn: EmptyEvent): void {
+    this.hintFns.push(fn);
   }
 
   /**
@@ -130,6 +142,7 @@ export class EmptySpot {
         // すでに「ぷるっ」が返っているので二重に揺らさない
         if (run.answer && run.answer !== run.spot) {
           run.answer.callShake = Math.max(run.answer.callShake, CALL_STRENGTH);
+          this.emit(this.hintFns, run.spot, run.answer);
         }
       }
 
@@ -162,6 +175,7 @@ export class EmptySpot {
     this.runs.clear();
     this.voiceFns.length = 0;
     this.puffFns.length = 0;
+    this.hintFns.length = 0;
     void this.spots;
   }
 

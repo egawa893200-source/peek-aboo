@@ -44,6 +44,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
     id: 'neko',
     // 素材はまだ1つも無い。null なら手続き生成に落ちる（不変条件7）
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/neko.webp',
     scale: 1.0,
     // 彩度を落としすぎない。加算の光は載せていないので、この色がほぼそのまま出る
     // （みずのなかでは加算のリムライト最大 +1.7 が体色を白く消していた）
@@ -62,6 +64,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'inu',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/inu.webp',
     scale: 1.0,
     color: '#8a5a33',
     bellyColor: '#f2ddc2',
@@ -79,6 +83,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'nezumi',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/nezumi.webp',
     scale: 1.0,
     color: '#9aa6b4',
     bellyColor: '#e9eef5',
@@ -96,6 +102,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'kotori',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/kotori.webp',
     scale: 1.0,
     color: '#57bfe3',
     bellyColor: '#fff6d2',
@@ -115,6 +123,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'usagi',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/usagi.webp',
     scale: 1.0,
     color: '#f0ece4',
     bellyColor: '#ffffff',
@@ -137,6 +147,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'kaeru',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/kaeru.webp',
     scale: 1.0,
     color: '#5fb356',
     bellyColor: '#e6f3c9',
@@ -154,6 +166,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'risu',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/risu.webp',
     scale: 1.0,
     color: '#c07a3e',
     bellyColor: '#f6e3c6',
@@ -171,6 +185,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'harinezumi',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/harinezumi.webp',
     scale: 1.0,
     color: '#8b7a63',
     bellyColor: '#efdcc2',
@@ -192,6 +208,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'chocho',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/chocho.webp',
     scale: 1.0,
     color: '#f0c033',
     bellyColor: '#e87ba8',
@@ -213,6 +231,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'kumanomi',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/kumanomi.webp',
     scale: 1.0,
     color: '#f0782a',
     bellyColor: '#fdf6ee',
@@ -232,6 +252,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'tako',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/tako.webp',
     scale: 1.0,
     color: '#d2597e',
     bellyColor: '#ffd9e2',
@@ -248,6 +270,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'kani',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/kani.webp',
     scale: 1.0,
     color: '#d9503c',
     bellyColor: '#ffd3b0',
@@ -266,6 +290,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'pengin',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/pengin.webp',
     scale: 1.0,
     color: '#2f3a4c',
     bellyColor: '#f7f9fb',
@@ -285,6 +311,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'ushi',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/ushi.webp',
     scale: 1.0,
     color: '#f2efe8',
     bellyColor: '#ffffff',
@@ -303,6 +331,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'buta',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/buta.webp',
     scale: 1.0,
     color: '#eda3ac',
     bellyColor: '#fbd6db',
@@ -320,6 +350,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'hitsuji',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/hitsuji.webp',
     scale: 1.0,
     color: '#efe7d8',
     bellyColor: '#fffdf7',
@@ -338,6 +370,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
   {
     id: 'niwatori',
     modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/niwatori.webp',
     scale: 1.0,
     color: '#fbfbf7',
     bellyColor: '#f0e4c8',
@@ -349,7 +383,167 @@ export const ANIMALS: readonly AnimalConfig[] = [
     headTop: 'comb',
     snout: 'beak',
     tail: 'feather',
+    bodyHeight: 0.92,
+    bodyWidth: 0.42,
+  },
+  /* --- どうぶつえん（モードA） -------------------------------------------- */
+  {
+    id: 'raion',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/raion.webp',
+    scale: 1.0,
+    color: '#d9a25c',
+    bellyColor: '#f5e0bd',
+    voice: 'baa',
+    style: 'pop',
+    hintPart: 'tail',
+    bodyPlan: 'mammal',
+    headTop: 'roundEars',
+    snout: 'muzzle',
+    tail: 'thin',
+    // **たてがみが顔をぐるりと囲む。** これが無いと大きいねこにしか見えない
+    coat: 'mane',
+    bodyHeight: 0.9,
+    bodyWidth: 0.62,
+  },
+  {
+    id: 'zou',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/zou.webp',
+    scale: 1.0,
+    color: '#a8adb5',
+    bellyColor: '#d8dce1',
+    voice: 'baa',
+    style: 'slide',
+    hintPart: 'nose',
+    bodyPlan: 'mammal',
+    // 大きな耳＋垂れた鼻。どちらか片方だけだと、ぞうに見えない
+    headTop: 'bigEars',
+    snout: 'trunk',
+    tail: 'thin',
+    bodyHeight: 1.00,
+    bodyWidth: 0.62,
+  },
+  {
+    id: 'kirin',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/kirin.webp',
+    scale: 1.0,
+    color: '#e0a943',
+    bellyColor: '#f6e2b4',
+    voice: 'baa',
+    style: 'peek',
+    hintPart: 'ear',
+    // **首の長さが輪郭のすべて。** けものの作りでは胴が大きすぎる
+    bodyPlan: 'longneck',
+    headTop: 'horns',
+    snout: 'muzzle',
+    tail: 'thin',
+    coat: 'spotted',
+    bodyHeight: 1.25,
+    bodyWidth: 0.32,
+  },
+  {
+    id: 'saru',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/saru.webp',
+    scale: 1.0,
+    color: '#9c6544',
+    bellyColor: '#f0d9bf',
+    voice: 'baa',
+    style: 'flip',
+    hintPart: 'foot',
+    bodyPlan: 'mammal',
+    headTop: 'roundEars',
+    snout: 'flat',
+    // 体より長い尾。ねずみの thin と違って上へ巻き上がる
+    tail: 'long',
+    bodyHeight: 0.86,
+    bodyWidth: 0.54,
+  },
+
+  /* --- きょうりゅう（モードA） -------------------------------------------- */
+  {
+    id: 'tirano',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/tirano.webp',
+    scale: 1.0,
+    color: '#7e8f5a',
+    bellyColor: '#c3cf94',
+    voice: 'baa',
+    style: 'pop',
+    hintPart: 'tail',
+    // 二足。太い尾で釣り合う。**口は開けない**（§5-2）
+    bodyPlan: 'dino',
+    headTop: 'none',
+    snout: 'muzzle',
+    tail: 'none',
+    bodyHeight: 1.00,
+    bodyWidth: 0.52,
+  },
+  {
+    id: 'torikera',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/torikera.webp',
+    scale: 1.0,
+    color: '#8c9a5e',
+    bellyColor: '#d5dba6',
+    voice: 'baa',
+    style: 'slide',
+    hintPart: 'nose',
+    bodyPlan: 'mammal',
+    // えりまきと3本の角。ティラノと同じ緑なので、**輪郭で分ける**
+    headTop: 'frill',
+    snout: 'wide',
+    tail: 'thin',
     bodyHeight: 0.8,
+    bodyWidth: 0.7,
+  },
+  {
+    id: 'sutego',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/sutego.webp',
+    scale: 1.0,
+    color: '#6f8f52',
+    bellyColor: '#cbdca0',
+    voice: 'baa',
+    style: 'peek',
+    hintPart: 'fin',
+    bodyPlan: 'mammal',
+    headTop: 'none',
+    snout: 'point',
+    tail: 'thin',
+    // 背板。左右に振ってあるので正面からも見える
+    coat: 'plates',
+    bodyHeight: 0.76,
+    bodyWidth: 0.48,
+  },
+  {
+    id: 'putera',
+    modelUrl: null,
+    // 道A: 参照画像そのものを貼る（2026-09-06）。無ければ手続き生成に落ちる
+    cutoutUrl: '/animals/putera.webp',
+    scale: 1.0,
+    color: '#6c8494',
+    bellyColor: '#cfdde5',
+    voice: 'baa',
+    style: 'flip',
+    hintPart: 'foot',
+    bodyPlan: 'bird',
+    // 後ろへ伸びるとさか。にわとりの comb は上に立つので混ざらない
+    headTop: 'crest',
+    snout: 'beak',
+    tail: 'none',
+    // 翼が輪郭の主役
+    coat: 'wings',
+    bodyHeight: 0.86,
     bodyWidth: 0.62,
   },
 ];

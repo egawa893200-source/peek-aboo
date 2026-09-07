@@ -148,6 +148,87 @@
         "front": "animals/buta/front.png",
         "side": "animals/buta/side.png"
       }
+    },
+    {
+      "id": "niwatori",
+      "priority": 17,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/niwatori/front.png",
+        "side": "animals/niwatori/side.png"
+      }
+    },
+    {
+      "id": "raion",
+      "priority": 18,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/raion/front.png",
+        "side": "animals/raion/side.png"
+      }
+    },
+    {
+      "id": "zou",
+      "priority": 19,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/zou/front.png",
+        "side": "animals/zou/side.png"
+      }
+    },
+    {
+      "id": "kirin",
+      "priority": 20,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/kirin/front.png",
+        "side": "animals/kirin/side.png"
+      }
+    },
+    {
+      "id": "saru",
+      "priority": 21,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/saru/front.png",
+        "side": "animals/saru/side.png"
+      }
+    },
+    {
+      "id": "tirano",
+      "priority": 22,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/tirano/front.png",
+        "side": "animals/tirano/side.png"
+      }
+    },
+    {
+      "id": "torikera",
+      "priority": 23,
+      "sideFacing": "left",
+      "views": {
+        "front": "animals/torikera/front.png",
+        "side": "animals/torikera/side.png"
+      }
+    },
+    {
+      "id": "sutego",
+      "priority": 24,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/sutego/front.png",
+        "side": "animals/sutego/side.png"
+      }
+    },
+    {
+      "id": "putera",
+      "priority": 25,
+      "sideFacing": "right",
+      "views": {
+        "front": "animals/putera/front.png",
+        "side": "animals/putera/side.png"
+      }
     }
   ],
   "_appViewNote": "appViewFor は「参照のこの向きは、アプリのどの向きと突き合わせるか」。くまのみは ProceduralAnimals が魚を横向きに作っている（正面から見た魚は魚に見えないため）ので、アプリの front カメラには魚の横顔が写る。参照の front（真正面）と突き合わせると別物を比べることになる。"

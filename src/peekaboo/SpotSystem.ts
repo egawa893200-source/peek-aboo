@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 
-import type { SceneMode, SpotConfig, SpotState } from '../types';
+import type { SceneMode, SpotConfig, SpotKind, SpotState } from '../types';
 import { createSpotShape, type SpotShape } from './SpotShapes';
 
 /* --- タイミング（§4-3。実測で決めた値なので、動かすときは設計書も直すこと） --- */
@@ -37,6 +37,35 @@ import { createSpotShape, type SpotShape } from './SpotShapes';
 export const APPEAR_DELAY_SEC = 0.15;
 /** 出はじめてから出きるまで（§4-3 の 0.15s → 0.50s） */
 export const APPEAR_DUR_SEC = 0.35;
+
+/* --- §6-1「毎回変わるもの（小）」。同じ動きの繰り返しに見せない ------------ */
+
+/**
+ * 登場の速さのばらつき（±この割合）。
+ *
+ * **「ため＋登場」の合計は振らない。** 速くなったぶんだけ ため を伸ばし、
+ * 遅くなったぶんだけ ため を縮めて、山（§4-3 の 0.50s）は必ず同じ時刻に来る。
+ * 速さをそのまま振って合計を伸ばすと、§4-3 の 0.50s と §4-5 の 1周 4.80s が
+ * その回ごとにずれる（実際に安全テスト5件が落ちた）。
+ * **振るのは速い側だけ**（0.9〜1.0 倍）。遅い側に振って ため で吸収すると、
+ * ため が 0.15 → 0.115秒 まで縮んで §4-3 の下限を割る（実測）。
+ */
+export const SPEED_VAR = 0.1;
+/** 大きさのばらつき（±この割合）。**隠れているあいだは効かせない**（§4-2） */
+export const SIZE_VAR = 0.1;
+/** 声のピッチのばらつき（±この割合）。これ以上振ると別人の声になる */
+export const VOICE_VAR = 0.05;
+
+/** §6-1 のばらつき用の乱数。**共有の乱数列に相乗りしない**（上の理由） */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 /**
  * 出たまま待つ時間（§4-3。みずのなかの `OUT_IDLE_SEC` 実績値）。
  * 短いと見る前に消える。長いと「隠れている」に戻らず次が押せない。
@@ -51,6 +80,9 @@ export const HIDE_DUR_SEC = 0.5;
  * §4-5 の表では 0.50s に出きって 1.70s に idle が終わるので、ちょうど 1.2秒。
  */
 export const CHASE_OUT_IDLE_SEC = 1.2;
+
+/** `reveal` を 1 とみなす幅（浮動小数の誤差ぶん。上の `step` の説明を参照） */
+const REVEAL_EPS = 1e-6;
 
 /** 登場の山（不変条件4「登場は 0.35秒以内に始まる」の判定に使う） */
 export const PEAK_AT_SEC = APPEAR_DELAY_SEC + APPEAR_DUR_SEC;
@@ -108,7 +140,13 @@ export interface SpotHitTester {
 
 export interface SpotRuntime {
   readonly config: SpotConfig;
-  readonly shape: SpotShape;
+  /**
+   * いまの見た目。**`config.kind` とは違うことがある。**
+   * §6「残るもの」で、たまご／つぼみに入れ替わる（2026-09-07 に人間が決めた）
+   */
+  shape: SpotShape;
+  /** いまの見た目の種類。`config.kind` に戻すときに比べる */
+  shapeKind: SpotKind;
   readonly group: THREE.Group;
   /** 当たり判定に使うワールド座標。毎フレーム作り直さない（§10-3） */
   readonly worldPosition: THREE.Vector3;
@@ -117,6 +155,21 @@ export interface SpotRuntime {
   reveal: number;
   /** §4-4 のオーバーシュート 0..1 */
   pulse: number;
+  /**
+   * この登場だけの速さの倍率（§6-1「登場の速さが ±10% ばらつく」）。
+   * **`appearing` に入るたびに引き直す。** 1 より大きいと遅い。
+   * 開始の遅れ（`APPEAR_DELAY_SEC`）は振らない。不変条件4
+   * 「登場は 0.35秒以内に始まる」を毎回きっちり守るため
+   */
+  speedVar: number;
+  /**
+   * この登場だけの大きさの倍率（§6-1「大きさが ±10% ばらつく」）。
+   * **隠れているあいだは効かせない**（`reveal` を掛けてある）。
+   * 効かせると隠れ場所に収まらなくなる回ができる（§4-2）
+   */
+  sizeVar: number;
+  /** この登場だけの声の速さ（§6-1「声のピッチが ±5%」） */
+  voiceVar: number;
   /** ため の残り秒 */
   delay: number;
   /** `out` でいる残り秒 */
@@ -177,9 +230,20 @@ export class SpotSystem {
   private readonly emptyFns: SpotEvent[] = [];
   private readonly tapFns: SpotEvent[] = [];
   private readonly openFns: SpotEvent[] = [];
+  private readonly hiddenFns: SpotEvent[] = [];
+
+  /**
+   * §6-1 のばらつき用。**独立した種から引く。**
+   * three の `generateUUID()` が `Math.random()` を消費するので、
+   * 共有の乱数列に相乗りすると、モデルを1つ足しただけで見た目が変わる
+   */
+  private readonly rng: () => number;
 
   /** 応答を返したタップの総数。**タップ総数と必ず一致すること**（不変条件1） */
   private responses = 0;
+  /** 順番待ちで出さなかった回数（2026-09-07 の「1体ずつ」） */
+  private blocked = 0;
+  private readonly busyFns: SpotEvent[] = [];
 
   /**
    * @param mode 場面の遊び方（§4-5）。`chase` では `out` のあと
@@ -187,10 +251,12 @@ export class SpotSystem {
    */
   constructor(
     spots: readonly SpotConfig[],
-    readonly mode: SceneMode = 'hideout'
+    readonly mode: SceneMode = 'hideout',
+    variationSeed?: number
   ) {
+    this.rng = mulberry32(variationSeed ?? ((Date.now() ^ 0x27d4eb2f) >>> 0));
     spots.forEach((config, i) => {
-      const shape = createSpotShape(config.kind);
+      const shape = createSpotShape(config.kind, config.position[1], config.position[0]);
       const group = new THREE.Group();
       group.position.fromArray(config.position);
       group.scale.setScalar(config.scale);
@@ -200,11 +266,15 @@ export class SpotSystem {
       const runtime: SpotRuntime = {
         config,
         shape,
+        shapeKind: config.kind,
         group,
         worldPosition: new THREE.Vector3().fromArray(config.position),
         state: 'hidden',
         reveal: 0,
         pulse: 0,
+        speedVar: 1,
+        sizeVar: 1,
+        voiceVar: 1,
         delay: 0,
         idle: 0,
         shake: 0,
@@ -226,6 +296,32 @@ export class SpotSystem {
     this.sx = new Float64Array(n);
     this.sy = new Float64Array(n);
     this.onScreen = new Uint8Array(n);
+  }
+
+  /**
+   * 見た目だけを入れ替える（§6「残るもの」。2026-09-07 に人間が決めた）。
+   *
+   * ==========================================================================
+   * **当たり判定は動かない。** 判定は `worldPosition`（＝設定した座標）を
+   * 投影して決まるので、見た目が変わっても押せる場所は同じ。
+   *
+   * **隠れているときにしか呼ばないこと。** 出ている最中に入れ替えると、
+   * 動物が宙に浮いたり、開いたふたが消えたりする。
+   * 呼んだあとは `AnimalSystem.reanchor()` で動物を置き直すこと
+   * （高さも開口部の幅も変わるので、置き直さないと縁からはみ出す）。
+   * ==========================================================================
+   */
+  setShape(spot: SpotRuntime, kind: SpotKind): boolean {
+    if (spot.shapeKind === kind || spot.state !== 'hidden') return false;
+    spot.group.remove(spot.shape.group);
+    spot.shape.dispose();
+    spot.shape = createSpotShape(kind, spot.config.position[1], spot.config.position[0]);
+    spot.shapeKind = kind;
+    spot.group.add(spot.shape.group);
+    // 閉じた状態から始める。**開き具合を引き継がない**
+    spot.shape.setOpen(0);
+    spot.openPrev = 0;
+    return true;
   }
 
   /** 「ばあ！」を返すタイミング。押した瞬間か、登場の山か */
@@ -261,6 +357,17 @@ export class SpotSystem {
    */
   onOpen(fn: SpotEvent): void {
     this.openFns.push(fn);
+  }
+
+  /**
+   * 隠れ終わった（`hiding` → `hidden`）。
+   *
+   * §6-2「同じ隠れ場所から別の動物が出る」を、ここで差し替える。
+   * **出ている最中や引っ込む途中に入れ替えないこと。** 目の前で動物が
+   * すり替わる。隠れ終わってからなら、次に開けたときに気づく
+   */
+  onHidden(fn: SpotEvent): void {
+    this.hiddenFns.push(fn);
   }
 
   find(id: string): SpotRuntime | null {
@@ -306,8 +413,20 @@ export class SpotSystem {
 
     switch (spot.state) {
       case 'hidden':
+        // **1体ずつしか出さない**（2026-09-07 に人間が決めた）。
+        // 1歳半は画面を連打するので、4体が同時に出ていると
+        // 「自分が押したから出た」が読めなくなる。誰かが出ているあいだは
+        // 新しく出さない。**ただし無反応にはしない**
+        // （ぷるっ・波紋・音は上で返しているので不変条件1・2 は守れる）
+        if (this.busySpot(spot)) {
+          this.blocked++;
+          this.emit(this.busyFns, spot);
+          break;
+        }
         spot.state = 'appearing';
-        spot.delay = APPEAR_DELAY_SEC;
+        this.rollVariation(spot);
+        // 速さのぶんを ため で吸収する（山は必ず PEAK_AT_SEC）
+        spot.delay = PEAK_AT_SEC - APPEAR_DUR_SEC * spot.speedVar;
         // 声は山で。ここで鳴らすと「ばあ」ではなくただのボタンになる（§4-3）
         break;
       case 'hiding':
@@ -315,6 +434,7 @@ export class SpotSystem {
         // ここで 0.15秒待たせると「もう一回！」への反応が鈍く感じる
         spot.state = 'appearing';
         spot.delay = 0;
+        this.rollVariation(spot);
         this.emit(this.voiceFns, spot);
         break;
       case 'appearing':
@@ -343,12 +463,22 @@ export class SpotSystem {
   private step(s: SpotRuntime, dt: number): void {
     switch (s.state) {
       case 'appearing': {
+        // ため の残りを引いた**余りを同じフレームで登場に回す**。
+        // ここで break して1フレーム丸ごと捨てると、ため が 1/60 の倍数で
+        // ないとき（§6-1 で速さを振ると必ずそうなる）に山が最大2フレーム遅れる
+        let step = dt;
         if (s.delay > 0) {
-          s.delay = Math.max(0, s.delay - dt);
-          break;
+          const used = Math.min(s.delay, step);
+          s.delay -= used;
+          step -= used;
+          if (step <= 0) break;
         }
-        s.reveal += dt / APPEAR_DUR_SEC;
-        if (s.reveal >= 1) {
+        // §6-1: この登場だけ速さが ±10% 変わる（`speedVar`）
+        s.reveal += step / (APPEAR_DUR_SEC * s.speedVar);
+        // **1 との比較に幅を持たせる。** ため＋登場はちょうど 0.50s＝30フレームで、
+        // 浮動小数の誤差で 0.9999999999 に落ちるだけで山が1フレーム遅れる
+        // （§6-1 を入れて ため が 1/60 の倍数でなくなってから実際に出た）
+        if (s.reveal >= 1 - REVEAL_EPS) {
           s.reveal = 1;
           s.state = 'out';
           s.idle = this.outIdleSec();
@@ -373,6 +503,7 @@ export class SpotSystem {
         if (s.reveal <= 0) {
           s.reveal = 0;
           s.state = 'hidden';
+          this.emit(this.hiddenFns, s);
         }
         break;
       }
@@ -522,6 +653,7 @@ export class SpotSystem {
     return this.runtimes.map((s, i) => ({
       id: s.config.id,
       kind: s.config.kind,
+      shapeKind: s.shapeKind,
       state: s.state,
       reveal: s.reveal,
       taps: s.taps,
@@ -544,7 +676,54 @@ export class SpotSystem {
     this.emptyFns.length = 0;
     this.tapFns.length = 0;
     this.openFns.length = 0;
+    this.hiddenFns.length = 0;
     this.group.removeFromParent();
+  }
+
+  /**
+   * この登場ぶんのばらつきを引く（§6-1）。
+   *
+   * **`Math.random()` を使わない。** three は `generateUUID()` で
+   * 1オブジェクトにつき 4回 消費するので、共有の乱数列に相乗りすると
+   * モデルを1つ足しただけで見た目が変わる（みずのなかの実測）。
+   */
+  /**
+   * いま別の子が出ている（or 出入りの途中）か。
+   *
+   * **`moving`（§4-5）は数えない。** モードBは1体しか居らず、
+   * 移動中に別の場所を押すのは §4-6 の空振りとして扱う
+   */
+  private busySpot(exclude: SpotRuntime): SpotRuntime | null {
+    for (const s of this.runtimes) {
+      if (s === exclude || !s.occupied) continue;
+      if (s.state === 'appearing' || s.state === 'out' || s.state === 'hiding') return s;
+    }
+    return null;
+  }
+
+  /** 「いま順番待ち」で出さなかった回数（E2E から見る） */
+  getBlockedCount(): number {
+    return this.blocked;
+  }
+
+  /** 別の子が出ているあいだに押されたときのイベント */
+  onBusy(fn: SpotEvent): void {
+    this.busyFns.push(fn);
+  }
+
+  private rollVariation(spot: SpotRuntime): void {
+    // **速い側にしか振らない**（2026-09-07 に実測で決めた）。
+    //
+    // 両側に振って ため で吸収する版を作ったら、遅い回に ため が
+    // 0.15 → 0.115秒 まで縮んで、§4-3 の「0.15秒より速いと『ばあ』に
+    // ならない。押したら即出るのは、ただのボタン」を割った
+    // （不変条件4 のテストが落ちた）。
+    //   ・速さ 0.9〜1.0 倍 → 登場は 0.315〜0.35秒（0.35 を超えない）
+    //   ・ため は 0.15〜0.185秒（0.15 を下回らない）
+    //   ・合計は必ず 0.50秒（§4-3 の山と §4-5 の1周が動かない）
+    spot.speedVar = 1 - this.rng() * SPEED_VAR;
+    spot.sizeVar = 1 + (this.rng() * 2 - 1) * SIZE_VAR;
+    spot.voiceVar = 1 + (this.rng() * 2 - 1) * VOICE_VAR;
   }
 
   private emit(fns: readonly SpotEvent[], spot: SpotRuntime): void {
@@ -555,6 +734,8 @@ export class SpotSystem {
 export interface SpotSnapshot {
   id: string;
   kind: string;
+  /** いまの見た目。§6 で たまご に入れ替わると `kind` と違う値になる */
+  shapeKind: string;
   state: SpotState;
   reveal: number;
   taps: number;

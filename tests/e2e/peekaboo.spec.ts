@@ -376,8 +376,45 @@ test.describe('描画量と当たり判定の実測（§10-2）', () => {
     expect(info.triangles).toBeGreaterThan(0);
     expect(info.triangles).toBeLessThan(20_000);
     expect(info.calls).toBeLessThan(120);
-    // テクスチャは1枚も使っていない（すべて単色。不変条件7 の確認にもなる）
-    expect(await page.evaluate(() => window.__peekaboo.getTextureBytes().bytes)).toBe(0);
+    // **ここは 2026-09-06 に人間が決めて中身を入れ替えた。**
+    //
+    // もとは「テクスチャは1枚も使っていない（bytes === 0）」だった。
+    // 道A（参照画像をそのまま貼る）を採ったので、この前提は成り立たない。
+    // ただし**判定を緩めたのではなく、移した**:
+    //   ・ここでは「載せすぎていないこと」を天井で見る
+    //   ・もとの assertion が代わりに守っていた不変条件7（素材が無くても動く）は、
+    //     下の「素材を落としてもアプリは動く」で**直接**見る。こちらのほうが強い
+    const texture = await page.evaluate(() => window.__peekaboo.getTextureBytes());
+    console.log(`[実測] テクスチャ ${(texture.bytes / 1024 / 1024).toFixed(2)}MB / ${texture.count}枚`);
+    expect(texture.bytes).toBeLessThan(24 * 1024 * 1024);
+  });
+});
+
+test.describe('不変条件7 — 素材が1つも無くても起動する', () => {
+  test('動物の絵を全部落としても、起動して、どこを押しても反応が返る', async ({ page }) => {
+    // **404 ではなく abort にする。** 実機で素材を置き忘れた状態を再現したい
+    await page.route('**/animals/*.webp', (route) => route.abort());
+
+    await boot(page);
+    const spots = await spotCenters(page);
+    expect(spots.length).toBeGreaterThanOrEqual(4);
+
+    // 手続き生成に落ちているので、三角形は増えているはず
+    const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());
+    expect(info.triangles).toBeGreaterThan(0);
+
+    const before = await page.evaluate(() => window.__peekaboo.getSpotResponseCount());
+    for (const s of spots) await page.mouse.click(s.x, s.y);
+    const after = await page.evaluate(() => window.__peekaboo.getSpotResponseCount());
+    expect(after - before).toBe(spots.length);
+
+    // 隠れているあいだ、体の一部が縁から見えていること（不変条件3）
+    await page.evaluate(() => window.__peekaboo.reloadScene());
+    await page.waitForFunction(() => window.__peekaboo.isReady());
+    const exposures = await page.evaluate(() =>
+      window.__peekaboo.getSpots().map((s) => window.__peekaboo.getExposure(s.id)?.fraction ?? -1)
+    );
+    for (const e of exposures) expect(e).toBeGreaterThan(0);
   });
 });
 
@@ -540,10 +577,21 @@ test.describe('§4-5 移動モード', () => {
       }
 
       // **移動中ずっと、4箇所すべてを毎フレーム連打する**
+      //
+      // **待つ長さは壁時計で決めないこと**（§10-2 / CLAUDE.md）。
+      // ここは 5000ms の壁時計で待っていたが、GPU の無い環境では
+      // 13fps しか出ず、`Loop` が1フレームに最大3ステップしか進めないため
+      // 5秒待っても更新時計は 3.0秒ぶんしか進まない。1周（4.80秒）に
+      // 届くかどうかが**その日の速さ次第**になり、同じコードが緑にも赤にもなった。
+      // 更新時計で 6.0秒ぶん待つ。壁時計は「固まったときに止める」ためだけに使う
       const spots = api.getSpots();
       let taps = 0;
-      const t1 = performance.now();
-      while (performance.now() - t1 < 5000) {
+      const sim0 = api.getSimulatedSeconds();
+      const guard = performance.now();
+      while (
+        api.getSimulatedSeconds() - sim0 < 6.0 &&
+        performance.now() - guard < 60_000
+      ) {
         for (const s of spots) {
           api.tap(s.screenX, s.screenY);
           taps++;
@@ -571,10 +619,16 @@ test.describe('§4-5 移動モード', () => {
         const id = api.getChase()!.answerSpotId;
         const s = api.getSpots().find((x) => x.id === id)!;
         api.tap(s.screenX, s.screenY);
-        const t0 = performance.now();
-        while (performance.now() - t0 < 9000) {
+        // **待つ長さを壁時計で決めないこと**（CLAUDE.md の実測）。
+        // 1周は更新時計で 4.85秒。GPU の無い環境では壁時計で 5〜10秒 かかり、
+        // 味つけを足して重くなったぶん 9000ms では届かなくなった。
+        // 壁時計は「固まったときに止める」ためだけに使う
+        const sim0 = api.getSimulatedSeconds();
+        const wall0 = performance.now();
+        while (performance.now() - wall0 < 60_000) {
           await new Promise((r) => requestAnimationFrame(r));
           if (api.getChase()!.laps >= lap + 1) break;
+          if (api.getSimulatedSeconds() - sim0 > 12) break;
         }
       }
       return api.getChase()!.history;
@@ -673,7 +727,21 @@ test.describe('全場面', () => {
 
       await page.waitForTimeout(900);
       const info = await page.evaluate(() => window.__peekaboo.getRenderInfo());
-      lines.push(`  ${id.padEnd(8)} 三角形 ${String(info.triangles).padStart(6)}  draw call ${info.calls}`);
+      // 場面ごとの味つけ（2026-09-07）。**数値は記録するだけ**で合否にしない。
+      // 合否にするのは「隠れ場所を動かしていないこと」（下の expect）だけ
+      const flavor = await page.evaluate(() => window.__peekaboo.getFlavor());
+      lines.push(
+        `  ${id.padEnd(9)} 三角形 ${String(info.triangles).padStart(6)}  draw call ${String(info.calls).padStart(3)}` +
+          `  足音 ${flavor?.footsteps ?? 0}  横切り ${flavor?.crossings ?? 0}(とまり ${flavor?.landings ?? 0})` +
+          `  あぶく ${flavor?.bubbles.count ?? 0}/割れ ${flavor?.bubbles.popped ?? 0}` +
+          `  鳴き ${flavor?.chorus.runs ?? 0}  足あと ${flavor?.footprints ?? 0}` +
+          `  残り ${flavor?.leftovers.alive ?? 0}/${flavor?.leftovers.total ?? 0}` +
+          `  傾き ${(((flavor?.maxTiltRad ?? 0) * 180) / Math.PI).toFixed(2)}°`
+      );
+
+      // 味つけが隠れ場所を傾けすぎていないこと。
+      // 単体テストが「この2倍まで体が覗けない」ことを場面ごとに見ている
+      expect(((flavor?.maxTiltRad ?? 0) * 180) / Math.PI, `${id} の傾き`).toBeLessThan(3.5);
 
       // **fps は合否にしない**（§10-2）。GPU に依存しない量だけを見る
       expect(info.triangles, id).toBeGreaterThan(0);

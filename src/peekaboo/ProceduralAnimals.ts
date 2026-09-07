@@ -47,7 +47,15 @@ import { disposeObject3D } from './SpotShapes';
  * **上げすぎないこと。** ヒントの先端（鼻先・足）は少しはみ出すので、
  * 0.30 にすると小さい動物で 25% を超える。
  */
-export const HINT_EXPOSURE = 0.27;
+/**
+ * ヒントの高さ（体長に対する割合）。
+ *
+ * §4-2 は「体長の 15〜25% が縁から見えている」。
+ * `AnimalSystem.anchor()` が沈めたぶんをヒント側で伸ばすので、
+ * **実際に見える割合は動物の大きさによらずこの値になる**
+ * （ヒントの形ごとに ±5% ほどぶれるので、band の真ん中に置いてある）
+ */
+export const HINT_EXPOSURE = 0.21;
 
 export interface ProceduralAnimal {
   readonly group: THREE.Group;
@@ -60,6 +68,17 @@ export interface ProceduralAnimal {
   /** 視線を向ける先（§4-4「出きったらカメラの方を向く」） */
   readonly head: THREE.Object3D;
   /**
+   * 出かけ具合 0..1 に応じて、体の奥行きを決める。
+   *
+   * **絵を貼った動物（道A）はこれが要る。** 板は前板との隙間を埋めるために
+   * 手前へ出してあるが、隠れているあいだも手前に居ると、
+   * 葉や水面のように薄い覆いの**前**に出てしまう
+   * （2026-09-07 に実機で発覚。うみ の すいめん でクマノミが丸見えだった）。
+   * 隠れているあいだは奥に、出てくるにつれて手前に。
+   * 手続き生成の動物は厚みがあるので、何もしない。
+   */
+  setDepth(reveal: number): void;
+  /**
    * 視線をどれだけ効かせるか 0..1。
    * さかな・かに・たこは**横向き／真上向き**に作ってあるので、
    * カメラを正面から見せると輪郭が崩れる。浅くしか向かせない。
@@ -69,6 +88,16 @@ export interface ProceduralAnimal {
   readonly hint: THREE.Object3D;
   /** `hint` の高さ。`height` の HINT_EXPOSURE 倍にしてある */
   readonly hintHeight: number;
+  /**
+   * `true` なら `AnimalSystem` が**隠れ場所に合わせて大きさを決め直す**。
+   *
+   * 手続き生成の動物は、隠れ場所ごとの制約（開口の幅・縁の高さ）を見ながら
+   * `data/animals.ts` で1体ずつ手で決めてあるので `false`。
+   * 絵を貼った動物（`CutoutAnimal`）は絵の縦横比が先に決まっていて、
+   * 手で決めると隠れ場所の半分しか使わない大きさになる（実測: 開口 1.21〜1.29 に対して
+   * 動物の幅が 0.49〜0.70 しかなく、1歳半には小さすぎると言われた）。
+   */
+  readonly autoFit: boolean;
   /** 登場の山で一瞬だけ明るくする（§4-4）。加算ではなく emissive を上げる */
   setGlow(amount: number): void;
   dispose(): void;
@@ -92,6 +121,12 @@ interface Palette {
   dark: THREE.MeshStandardMaterial;
   /** 足・くちばし・とさかなど、体色と分けたい暖色。**暗い色で作らないこと** */
   warm: THREE.MeshStandardMaterial;
+  /**
+   * 体色を少し落とした色。たてがみ・えりまき・背板に使う。
+   * **固定の暖色（warm）を使わないこと。** トリケラトプスのえりまきが
+   * オレンジになって、体と別の生き物に見えた
+   */
+  accent: THREE.MeshStandardMaterial;
   glint: THREE.MeshBasicMaterial;
 }
 
@@ -123,6 +158,30 @@ function fin(mat: THREE.Material, w: number, h: number, d = 0.03): THREE.Mesh {
  * その場合はけものとして、耳も鼻も尾も無い塊になる。
  * 見分けはつかないが、アプリは動く。
  */
+/**
+ * ヒント（縁から出る部分）だけを作る。
+ *
+ * **絵を貼った動物（道A）もこれを使う。**
+ * 絵の上側を切って出していたら、**顔が丸ごと見えて誰か分かってしまった**
+ * （2026-09-07 に実機で指摘された）。「ばあ」は開けるまで分からないから
+ * 面白いので、縁から出すのは §5-1 の `hintPart`（耳・尻尾・ひれ）に限る。
+ */
+export function createHintNode(cfg: AnimalConfig, height: number): THREE.Object3D {
+  return createHint(cfg.hintPart, height, hintPalette(cfg));
+}
+
+/** ヒントだけを作るための最小の色。体は絵なので、体色だけ合わせる */
+function hintPalette(cfg: AnimalConfig): Palette {
+  return {
+    skin: standard(cfg.color),
+    belly: standard(cfg.bellyColor),
+    dark: standard('#20242c', 0.45),
+    warm: standard('#f2a93b', 0.55),
+    accent: standard(new THREE.Color(cfg.color).multiplyScalar(0.72), 0.72),
+    glint: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  };
+}
+
 export function createProceduralAnimal(cfg: AnimalConfig): ProceduralAnimal {
   const group = new THREE.Group();
 
@@ -139,6 +198,7 @@ export function createProceduralAnimal(cfg: AnimalConfig): ProceduralAnimal {
     // **暗い色で作らないこと。** 背景（#12203a）とほぼ同じ明るさだと、
     // 遮蔽が無いのに画面上では見えない（ことりの足で実際にそうなった）
     warm: standard('#f2a93b', 0.55),
+    accent: standard(new THREE.Color(cfg.color).multiplyScalar(0.72), 0.72),
     glint: new THREE.MeshBasicMaterial({ color: 0xffffff }),
   };
 
@@ -175,6 +235,10 @@ export function createProceduralAnimal(cfg: AnimalConfig): ProceduralAnimal {
     gazeStrength: built.gazeStrength,
     hint,
     hintHeight,
+    // 手続き生成の体には厚みがあるので、奥行きは動かさない
+    setDepth() {},
+    // 手続き生成は data/animals.ts で1体ずつ決めてある
+    autoFit: false,
     setGlow(amount) {
       // **加算の光を足さない。** みずのなかでは、生き物に載せた加算のリムライト
       // （最大 +1.7）が体色を白く消していた。emissive を体色そのものに寄せて
@@ -218,6 +282,10 @@ function buildBody(
       return buildInsect(cfg, p, h, w, d);
     case 'frog':
       return buildFrog(cfg, p, h, w, d);
+    case 'longneck':
+      return buildLongNeck(cfg, p, h, w, d);
+    case 'dino':
+      return buildDino(cfg, p, h, w, d);
     default:
       return buildMammal(cfg, p, h, w, d);
   }
@@ -259,11 +327,12 @@ function buildMammal(cfg: AnimalConfig, p: Palette, h: number, w: number, d: num
   belly.position.set(0, torsoH * 0.42, d * 0.22);
   root.add(belly);
 
-  addCoat(cfg, root, p, w, torsoH, d);
-
   const head = new THREE.Group();
   head.position.y = torsoH * 0.92 + headR * 0.72;
   root.add(head);
+
+  // **頭を作ってから呼ぶこと。** たてがみは頭の位置と大きさが要る
+  addCoat(cfg, root, p, w, torsoH, d, head.position.y, headR);
 
   const skull = ball(p.skin, headR);
   skull.scale.set(1, 1, 0.94);
@@ -301,6 +370,13 @@ function buildBird(cfg: AnimalConfig, p: Palette, h: number, w: number, d: numbe
     wing.position.set(sx * w * 0.46, torsoH * 0.52, 0);
     root.add(wing);
   }
+
+  // **とりでも coat を通すこと。** ここを呼んでいなかったせいで、
+  // プテラノドンの翼（coat: 'wings'）が一度も作られず、
+  // 翼の大きさを3通り試しても数値が 0.461 から1ミリも動かなかった。
+  // 「指標が動かないときは、対象ではなく指標の設計を疑う」の逆で、
+  // このときは**変更が届いていない**ほうだった
+  addCoat(cfg, root, p, w, torsoH, d);
 
   const head = new THREE.Group();
   // 首を作らない。首があると「とり」ではなく「けもの」に見える
@@ -589,6 +665,121 @@ function buildFrog(cfg: AnimalConfig, p: Palette, h: number, w: number, d: numbe
   return { root, head, gazeStrength: 0.8 };
 }
 
+/* --- くびながの獣（きりん） ------------------------------------------------- */
+
+/**
+ * きりん。**首の長さが輪郭のすべて。**
+ * けもの（buildMammal）で作って首だけ伸ばすと、胴が大きすぎて
+ * 「首の長い犬」になる。胴を小さく、脚を長く取る。
+ */
+function buildLongNeck(cfg: AnimalConfig, p: Palette, h: number, w: number, d: number): Built {
+  const root = new THREE.Group();
+  const torsoH = h * 0.26;
+  const headR = h * 0.11;
+  const legH = h * 0.3;
+  const neckLen = h * 0.44;
+  const torsoY = legH + torsoH / 2;
+
+  const torso = ball(p.skin);
+  torso.scale.set(w / 2, torsoH / 2, d / 2);
+  torso.position.y = torsoY;
+  root.add(torso);
+
+  // 脚4本。**細く長く。** きりんは脚も首と同じくらい目立つ
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = tube(p.skin, w * 0.085, legH, 6);
+      leg.position.set(sx * w * 0.3, legH / 2, sz * d * 0.26);
+      root.add(leg);
+    }
+  }
+
+  const neck = tube(p.skin, w * 0.13, neckLen, 8);
+  neck.position.set(0, torsoY + torsoH * 0.4 + neckLen / 2, d * 0.12);
+  neck.rotation.x = -0.12;
+  root.add(neck);
+
+  addCoat(cfg, root, p, w, torsoH, d);
+
+  const head = new THREE.Group();
+  head.position.set(0, torsoY + torsoH * 0.4 + neckLen + headR * 0.5, d * 0.18);
+  root.add(head);
+  const skull = ball(p.skin, headR);
+  skull.scale.set(1, 1, 1.3);
+  head.add(skull);
+  addEyes(head, p, headR * 0.22, headR * 0.5, headR * 0.72);
+  addSnout(cfg.snout ?? 'muzzle', head, p, headR);
+  addHeadTop(cfg.headTop ?? 'horns', head, p, headR);
+  addTail(cfg.tail ?? 'thin', root, p, w, d, torsoH);
+
+  return { root, head, gazeStrength: 1 };
+}
+
+/* --- 二足の恐竜 ------------------------------------------------------------ */
+
+/**
+ * 二足の恐竜（ティラノサウルス）。
+ * **口を開けない。牙を見せない**（1歳半が見るもの。§5-2）。
+ * 尾は胴と釣り合う太さで後ろへ伸ばす。これが無いと「立った熊」になる。
+ */
+function buildDino(cfg: AnimalConfig, p: Palette, h: number, w: number, d: number): Built {
+  const root = new THREE.Group();
+  const torsoH = h * 0.46;
+  const headR = h * 0.18;
+  const hipY = h * 0.3;
+
+  const torso = ball(p.skin);
+  torso.scale.set(w / 2, torsoH / 2, d / 2);
+  torso.position.y = hipY + torsoH * 0.3;
+  root.add(torso);
+
+  const belly = ball(p.belly);
+  belly.scale.set(w * 0.3, torsoH * 0.32, d * 0.3);
+  belly.position.set(0, hipY + torsoH * 0.18, d * 0.24);
+  root.add(belly);
+
+  // 尾。後ろへ、根元は太く先は細く
+  for (let i = 0; i < 4; i++) {
+    const t = i / 3;
+    const seg = ball(p.skin, w * (0.2 - 0.13 * t));
+    seg.position.set(0, hipY + torsoH * (0.22 - 0.16 * t), -d * (0.45 + 0.8 * t));
+    root.add(seg);
+  }
+
+  // 後ろ足。太もも＋すね
+  for (const sx of [-1, 1]) {
+    const thigh = ball(p.skin, w * 0.19);
+    thigh.scale.set(0.8, 1.15, 1);
+    thigh.position.set(sx * w * 0.28, hipY * 0.86, -d * 0.04);
+    root.add(thigh);
+    const shin = tube(p.skin, w * 0.075, hipY * 0.9, 6);
+    shin.position.set(sx * w * 0.28, hipY * 0.45, 0);
+    root.add(shin);
+  }
+
+  // 前足。**小さいことが特徴**なので、あえて残す
+  for (const sx of [-1, 1]) {
+    const arm = tube(p.skin, w * 0.045, w * 0.24, 6);
+    arm.position.set(sx * w * 0.24, hipY + torsoH * 0.52, d * 0.26);
+    arm.rotation.set(0.7, 0, sx * 0.35);
+    root.add(arm);
+  }
+
+  addCoat(cfg, root, p, w, torsoH, d);
+
+  const head = new THREE.Group();
+  head.position.set(0, hipY + torsoH * 0.78 + headR * 0.72, d * 0.1);
+  root.add(head);
+  const skull = ball(p.skin, headR);
+  skull.scale.set(0.9, 0.82, 1.3);
+  head.add(skull);
+  addEyes(head, p, headR * 0.17, headR * 0.44, headR * 0.82);
+  addSnout(cfg.snout ?? 'muzzle', head, p, headR);
+  addHeadTop(cfg.headTop ?? 'none', head, p, headR);
+
+  return { root, head, gazeStrength: 1 };
+}
+
 /* --- 部品 ------------------------------------------------------------------ */
 
 function addSnout(kind: Snout, head: THREE.Group, p: Palette, r: number): void {
@@ -635,6 +826,16 @@ function addSnout(kind: Snout, head: THREE.Group, p: Palette, r: number): void {
       }
       break;
     }
+    case 'trunk': {
+      // ぞうの鼻。**輪郭の主役**なので、顔より下まで垂らす
+      for (let i = 0; i < 5; i++) {
+        const t = i / 4;
+        const seg = ball(p.skin, r * (0.26 - 0.11 * t));
+        seg.position.set(0, -r * (0.24 + 0.44 * i), r * (0.88 - 0.05 * i));
+        head.add(seg);
+      }
+      break;
+    }
     case 'wide': {
       // 大きな口（ひつじ・かえる以外の草食）
       const jaw = ball(p.belly, r * 0.44);
@@ -656,6 +857,44 @@ function addSnout(kind: Snout, head: THREE.Group, p: Palette, r: number): void {
 
 function addHeadTop(kind: HeadTop, head: THREE.Group, p: Palette, r: number): void {
   switch (kind) {
+    case 'bigEars':
+      // ぞうの耳。**平たい大きな板を頭の横に張る。**
+      // 丸い耳を大きくしただけだと、ねずみと同じ輪郭になる
+      for (const sx of [-1, 1]) {
+        const ear = ball(p.accent, r * 0.66);
+        ear.scale.set(0.16, 1.0, 0.82);
+        ear.position.set(sx * r * 0.98, -r * 0.04, -r * 0.06);
+        head.add(ear);
+      }
+      break;
+    case 'frill': {
+      // トリケラトプスのえりまき。頭より大きい板を後ろに立てる
+      const frill = ball(p.accent, r * 1.12);
+      frill.scale.set(1, 0.94, 0.12);
+      frill.position.set(0, r * 0.42, -r * 0.34);
+      head.add(frill);
+      // 角3本（目の上に2本、鼻の上に1本）
+      for (const [x, y, z, len] of [
+        [-0.46, 0.66, 0.52, 0.74],
+        [0.46, 0.66, 0.52, 0.74],
+        [0, 0.0, 1.02, 0.44],
+      ]) {
+        const horn = cone(p.belly, r * 0.11, r * len, 6);
+        horn.position.set(x * r, y * r, z * r);
+        horn.rotation.x = -0.45;
+        head.add(horn);
+      }
+      break;
+    }
+    case 'crest': {
+      // プテラノドンのとさか。**後ろへ長く伸ばす。**
+      // にわとりのとさか（comb）は上に立つので、並べても混ざらない
+      const crest = cone(p.accent, r * 0.36, r * 1.6, 6);
+      crest.position.set(0, r * 0.62, -r * 0.82);
+      crest.rotation.x = 1.05;
+      head.add(crest);
+      break;
+    }
     case 'triangleEars':
       for (const sx of [-1, 1]) {
         const ear = cone(p.skin, r * 0.34, r * 0.72);
@@ -772,6 +1011,20 @@ function addTail(
       root.add(tail);
       break;
     }
+    case 'long': {
+      // さるの尾。**体より長く、上へ巻き上げる。** これがさるの決め手
+      for (let i = 0; i < 6; i++) {
+        const t = i / 5;
+        const seg = ball(p.skin, w * 0.055);
+        seg.position.set(
+          w * (0.3 + 0.34 * Math.sin(t * 2.4)),
+          torsoH * (0.45 + 0.95 * t),
+          -d * 0.5
+        );
+        root.add(seg);
+      }
+      break;
+    }
     case 'bushy': {
       // りすの尾。**背中より高く立てる。** これがりすの決め手
       for (let i = 0; i < 3; i++) {
@@ -818,9 +1071,54 @@ function addCoat(
   p: Palette,
   w: number,
   torsoH: number,
-  d: number
+  d: number,
+  headY = 0,
+  headR = 0
 ): void {
   switch (cfg.coat ?? 'plain') {
+    case 'mane': {
+      // ライオンのたてがみ。**顔をぐるりと囲む輪**にする。
+      // 頭の後ろに1枚置くだけだと、正面から見たときに何も足されない
+      const n = 14;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const tuft = ball(p.accent, headR * 0.44);
+        tuft.position.set(
+          Math.cos(a) * headR * 1.02,
+          headY + Math.sin(a) * headR * 1.02,
+          -headR * 0.24
+        );
+        root.add(tuft);
+      }
+      break;
+    }
+    case 'plates': {
+      // ステゴサウルスの背板。**左右に振って正面からも見えるようにする。**
+      // 背中の中心に1列で立てると、正面からは線にしか見えない
+      for (let i = 0; i < 6; i++) {
+        const t = i / 5;
+        const size = 1 - Math.abs(t - 0.45) * 1.2;
+        const plate = fin(p.accent, w * 0.3 * size, torsoH * 0.5 * size, 0.045);
+        plate.position.set(
+          (i % 2 === 0 ? -1 : 1) * w * 0.13,
+          torsoH * (0.92 + 0.16 * size),
+          -d * 0.34 + t * d * 0.5
+        );
+        plate.rotation.z = (i % 2 === 0 ? -1 : 1) * 0.28;
+        root.add(plate);
+      }
+      break;
+    }
+    case 'wings': {
+      // プテラノドンの翼。**体幅より大きく取る。** これが輪郭の主役
+      for (const sx of [-1, 1]) {
+        const wing = fin(p.accent, w * 0.28, torsoH * 1.05, 0.04);
+        wing.position.set(sx * w * 0.48, torsoH * 0.6, -d * 0.06);
+        wing.rotation.z = sx * -0.15;
+        root.add(wing);
+      }
+      break;
+    }
     case 'spiky':
       // はりねずみのとげ。背中に円錐を並べる。
       // **耳を出さないぶん、ここが唯一の突起**なので数と長さを稼ぐ

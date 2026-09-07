@@ -31,6 +31,7 @@ import { ScreenProjector } from '../core/ScreenProjector';
 import { WakeLock } from '../core/WakeLock';
 import { DEFAULT_SCENE_ID, findScene, SCENES } from '../data/scenes';
 import type { SpotRuntime, SpotSnapshot } from '../peekaboo/SpotSystem';
+import { Surprise } from '../peekaboo/Surprise';
 import { SceneRoot } from '../scene/SceneRoot';
 import { ParentalGate } from '../ui/ParentalGate';
 import { Ripple } from '../ui/Ripple';
@@ -56,6 +57,11 @@ export class App {
   private readonly projector: ScreenProjector;
   private readonly gate: ParentalGate;
   private readonly scene = new THREE.Scene();
+  /**
+   * §6-3 のサプライズ。**場面をまたいで使い回す**（カメラの子なので、
+   * 場面を作り直すたびに付け替える必要がない）
+   */
+  private readonly surprise = new Surprise();
 
   private sceneRoot: SceneRoot | null = null;
   private sceneId = DEFAULT_SCENE_ID;
@@ -91,12 +97,20 @@ export class App {
     this.scene.add(key);
     this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x4a4436, 1.1));
 
+    // §6-3 のサプライズは**カメラの子**にする。カメラ空間に置けば、
+    // 画面のどこにどれだけの大きさで出るかが素直に決まる。
+    // **カメラを scene に入れないと、その子は描かれない**（three の仕様）
+    this.scene.add(this.renderer.camera);
+    this.renderer.camera.add(this.surprise.group);
+    this.surprise.onVoice(() => this.audio.playVoice('baa'));
+
     this.input.onTap((tap) => this.onTap(tap.screenX, tap.screenY));
 
     this.loop.onUpdate((ctx) => {
       this.quality.sample(this.loop.rawDelta);
       this.renderer.setResolutionScale(this.quality.settings.resolutionScale);
       this.sceneRoot?.update(ctx.dt, this.renderer.camera);
+      this.surprise.update(ctx.dt, this.renderer.camera);
     });
     this.loop.onRender(() => this.renderer.render(this.scene));
   }
@@ -136,14 +150,21 @@ export class App {
       // **`speak()` ではなく `playVoice()` を使うこと。**
       // `speak()` は読み上げ用の入口で最短間隔 1.25秒 の制限があり、
       // 続けて別の隠れ場所を押すと声が落ちて「ばあっ！が返らない回」ができる。
-      next.spots.onVoice(() => this.audio.playVoice('baa'));
+      // §6-1: 声のピッチを ±5% 振る。毎回まったく同じ声にしない
+      next.spots.onVoice((spot) => this.audio.playVoice('baa', spot.voiceVar));
       next.spots.onPeak((spot) => this.onPeak(next, spot));
+      // §6-3。絵が無い動物は出さない（不変条件7）
+      this.surprise.setTextures(next.cutouts);
 
       // ふたが開きはじめたら、形に合った音を返す。
       // くさむらは葉をかき分ける「ワサワサ」（§4-5 / §4-6）
       next.spots.onOpen((spot) => {
         if (spot.config.kind === 'bush') this.audio.playOneShot('rustle');
       });
+
+      // §4-6。正解の場所が揺れはじめたら「こっちこっち〜」（2026-09-06）。
+      // **揺れと同時に鳴らすこと。** ずれると、どこが揺れたのか結び付かない
+      next.empty.onHint(() => this.audio.playVoice('kocchi'));
 
       // §4-6。**落胆の音にしない。** とぼけた「あれ？」。
       // ブザー・×印・暗転は使わない（外れを「失敗」にしない）。
@@ -155,6 +176,22 @@ export class App {
 
       // ぴょんぴょん（§4-5）。1跳ねごとに1回
       next.chase?.onHop(() => this.audio.playOneShot('hop'));
+
+      // 場面ごとの味つけ（2026-09-07）。音は App に集める
+      // （**`Flavor` の中で音を鳴らさない**）
+      next.flavor.onFootstep(() => this.audio.playOneShot('thud'));
+      // みんなで鳴く（§6 の〈中〉）。場所ごとに高さを変える。
+      // **「ばあっ！」を使わないこと。** まだ隠れているのに「ばあっ」と
+      // 言うのは、いちばん紛らわしい間違いだった（2026-09-07 に実機で指摘）
+      next.flavor.onCall((_spot, pitch) => this.audio.playOneShot('peep', pitch));
+      // もう1匹（§6 の〈大〉）。**声は出さない。**
+      // 押していないのに「ばあっ！」と鳴ると、どれが自分の押した結果か
+      // 分からなくなる。草をかき分ける音だけ返す
+      next.flavor.onCameo(() => this.audio.playOneShot('rustle'));
+      // 順番待ちで出せなかったとき（2026-09-07 の「1体ずつ」）。
+      // **無反応にしない。** 波紋と「ぽん」は既に返しているので、
+      // ここは草をかき分ける音だけ足す（「いま順番だよ」の合図）
+      next.spots.onBusy(() => this.audio.playOneShot('rustle'));
     } finally {
       this.building = false;
     }
@@ -178,6 +215,11 @@ export class App {
     const spots = this.sceneRoot?.spots;
     if (!spots) return;
 
+    // あぶく（§6 の〈中〉）。**隠れ場所より先に見ない。**
+    // 割れるかどうかに関わらず、このあと隠れ場所の判定は必ず走る
+    // （あぶくのせいで「押したのに動物が出ない」を作らない）
+    this.sceneRoot?.flavor.tap(screenX, screenY, this.projector);
+
     // 当たり判定は 3D のレイではなく画面座標で（§7-3）
     const hit = spots.pick(screenX, screenY, this.projector);
     if (hit) {
@@ -195,12 +237,73 @@ export class App {
   private onPeak(root: SceneRoot, spot: SpotRuntime): void {
     root.animals.requestFlash(spot);
     this.audio.playOneShot('bubble');
+    // §6-3。**外れても何も止めない。** いつもどおり動物は出ている
+    const animalId = root.animals.getSlot(spot.config.id)?.config.id;
+    if (animalId) this.surprise.maybeTrigger(animalId);
   }
 
   /** E2E と実機確認のためのデバッグ API */
   createDebugApi() {
     return {
       getTapCount: (): number => this.taps,
+      /** §6-2。いまその隠れ場所に居る動物の id */
+      getAnimalAt: (spotId: string): string | null =>
+        this.sceneRoot?.animals.getSlot(spotId)?.config.id ?? null,
+      /** §6-2。抽選した回数と、実際に入れ替えた回数 */
+      getShuffle: (): { rolled: number; swapped: number } => ({
+        rolled: this.sceneRoot?.shuffle?.getRolledCount() ?? 0,
+        swapped: this.sceneRoot?.animals.getSwapCount() ?? 0,
+      }),
+      /** §6-3 のサプライズ。抽選した回数と、実際に出した回数 */
+      getSurprise: (): {
+        rolled: number;
+        fired: number;
+        running: boolean;
+        direction: string;
+      } => ({
+        rolled: this.surprise.getRolledCount(),
+        fired: this.surprise.getFiredCount(),
+        running: this.surprise.isRunning(),
+        direction: this.surprise.getDirection(),
+      }),
+      /** 場面ごとの味つけ（2026-09-07）。実測用 */
+      getFlavor: (): {
+        footsteps: number;
+        crossings: number;
+        quaking: boolean;
+        maxTiltRad: number;
+        landings: number;
+        perchedSpotId: string | null;
+        bubbles: { count: number; popped: number };
+        chorus: { runs: number; running: boolean };
+        footprints: number;
+        leftovers: { alive: number; total: number };
+        shadows: number;
+        shadowSpotId: string | null;
+        cameos: number;
+        cameoSpotId: string | null;
+        cameoTaps: number;
+      } | null => {
+        const flavor = this.sceneRoot?.flavor;
+        if (!flavor) return null;
+        return {
+          footsteps: flavor.getFootstepCount(),
+          crossings: flavor.getCrossingCount(),
+          quaking: flavor.isQuaking(),
+          maxTiltRad: flavor.getMaxTiltRad(),
+          landings: flavor.getLandingCount(),
+          perchedSpotId: flavor.getPerchedSpotId(),
+          bubbles: flavor.getBubbles(),
+          chorus: flavor.getChorus(),
+          footprints: flavor.getFootprintCount(),
+          leftovers: flavor.getLeftovers(),
+          shadows: flavor.getShadowCount(),
+          shadowSpotId: flavor.getShadowSpotId(),
+          cameos: flavor.getCameoCount(),
+          cameoSpotId: flavor.getCameoSpotId(),
+          cameoTaps: flavor.getCameoTapCount(),
+        };
+      },
       getFrameCount: (): number => this.loop.frameCount,
       /**
        * 更新が進めた時間（秒）。**壁時計ではない**（`Loop.simulatedSeconds`）。
@@ -300,6 +403,7 @@ export class App {
   }
 
   dispose(): void {
+    this.surprise.dispose();
     this.loop.dispose();
     this.input.dispose();
     this.ripple.dispose();

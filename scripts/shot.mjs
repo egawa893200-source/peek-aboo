@@ -79,6 +79,8 @@ async function resolveTargets(page, args) {
   if (existsSync(manifestPath)) {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     const list = (manifest.animals ?? [])
+      // **pending はアプリにまだ居ない動物**。撮ろうとしても中身が無い
+      .filter((a) => !a.pending)
       .slice()
       .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999))
       .map((a) => a.id);

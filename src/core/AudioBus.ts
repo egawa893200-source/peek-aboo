@@ -74,7 +74,7 @@ const STORAGE_KEY = 'baa.audio';
  * 初期バンドルが声の本数ぶん膨らみ、起動時間を押し戻す
  * （みずのなかで 3本足したら 847KB → 1,023KB になった）。
  */
-export type VoiceClip = 'baa';
+export type VoiceClip = 'baa' | 'kocchi';
 
 /**
  * 素材の要らない単発音（不変条件7）。すべて WebAudio で合成する。
@@ -84,7 +84,7 @@ export type VoiceClip = 'baa';
  *  - rustle … 草をかき分けるワサワサ（§4-5 / §4-6）
  *  - huh    … 空振りの「あれ？」（§4-6。**落胆の音にしない**）
  */
-export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh';
+export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh' | 'thud' | 'peep';
 
 /**
  * 声の base64 を取り出す。
@@ -97,6 +97,14 @@ async function loadVoiceBase64(name: VoiceClip): Promise<string> {
   switch (name) {
     case 'baa':
       return BAA_WAV_BASE64;
+    case 'kocchi': {
+      // **動的 import にすること**（CLAUDE.md）。静的に足したら
+      // 初期バンドルが 847KB → 1,023KB になった実測がある。
+      // このファイルは文字列定数1つしか持たないので、分割された
+      // チャンクもその文字列ぶんしかない
+      const mod = await import('../audio/kocchiClip');
+      return mod.KOCCHI_WAV_BASE64;
+    }
   }
 }
 
@@ -122,6 +130,14 @@ export class AudioBus {
   private lastOneShot = 0;
   /** ワサワサの最短間隔用。ほかの単発音とは別枠にする */
   private lastRustle = 0;
+  /**
+   * 足音の最短間隔用。**これも別枠。**
+   * 足音はタップの「ぽん」と同じ瞬間に始まるので、共通の 0.05秒 の枠に
+   * 入れると1回目が黙って落ちる（「声が鳴らないのはたいてい間隔制限」）
+   */
+  private lastThud = 0;
+  /** 鳴き声の最短間隔用。**順に鳴らす**ので共通の枠だと落ちる */
+  private lastPeep = 0;
   /** ワサワサのノイズ。毎回作らずに使い回す（§10-3） */
   private rustleBuffer: AudioBuffer | null = null;
   /**
@@ -131,7 +147,7 @@ export class AudioBus {
    * いま押した動物の「ばあっ！」が黙って捨てられる。
    * 声の種類が違えば言葉として潰れないので、別々に数える
    */
-  private readonly lastSpeak: Record<VoiceClip, number> = { baa: 0 };
+  private readonly lastSpeak: Record<VoiceClip, number> = { baa: 0, kocchi: 0 };
 
   /** クリップを鳴らし終える AudioContext 時刻。重ねて再生しないため */
   private voiceBusyUntil = 0;
@@ -145,7 +161,7 @@ export class AudioBus {
    * 効果音は同じ経路で確実に鳴っているので、声も音声ファイルにして
    * 同じ経路（WebAudio）で鳴らす。
    */
-  private readonly voiceBuffers: Record<VoiceClip, AudioBuffer | null> = { baa: null };
+  private readonly voiceBuffers: Record<VoiceClip, AudioBuffer | null> = { baa: null, kocchi: null };
 
   /** 声の準備状況。?debug=1 に出して実機で切り分けられるようにする */
   private voiceState: 'yet' | 'ok' | 'ng' = 'yet';
@@ -293,7 +309,7 @@ export class AudioBus {
    * 本物の声には聞こえないが、口の動きとしては伝わる。
    */
   /** 読み込んだ声を鳴らす。鳴らせたら true。 */
-  private playVoiceClip(name: VoiceClip): boolean {
+  private playVoiceClip(name: VoiceClip, rate = 1): boolean {
     const ctx = this.ctx;
     const buffer = this.voiceBuffers[name];
     if (!ctx || !this.master || !buffer) return false;
@@ -303,6 +319,8 @@ export class AudioBus {
     try {
       const src = ctx.createBufferSource();
       src.buffer = buffer;
+      // **±5% まで。** これ以上振ると別人の声になる（§6-1）
+      src.playbackRate.value = Math.max(0.9, Math.min(1.1, rate));
       const gain = ctx.createGain();
       // master がすでに音量を持っているので、ここでは掛けない（VOICE_CLIP_GAIN の説明）
       const t0 = ctx.currentTime;
@@ -513,9 +531,15 @@ export class AudioBus {
    * `voiceBusyUntil` が防ぐので、言葉が潰れることはない。
    * まだデコードが終わっていない初回だけ、合成音が代役に立つ（§2 無音にしない）。
    */
-  playVoice(clip: VoiceClip = 'baa'): void {
+  /**
+   * 録音した声を1本鳴らす。
+   *
+   * @param rate 再生速度。**§6-1 の「声のピッチが ±5% ばらつく」はここ。**
+   *   1.0 が素のまま。0.95〜1.05 で「毎回まったく同じ声」でなくなる
+   */
+  playVoice(clip: VoiceClip = 'baa', rate = 1): void {
     if (this.muted || this.disabled || !this.unlocked) return;
-    if (this.playVoiceClip(clip)) return;
+    if (this.playVoiceClip(clip, rate)) return;
     void this.ensureVoice(clip);
     this.fallbackVoice(clip);
   }
@@ -645,7 +669,13 @@ export class AudioBus {
     };
   }
 
-  playOneShot(name: OneShot): void {
+  /**
+   * 単発の効果音。
+   *
+   * @param pitch 高さの倍率（0.8〜1.25）。**声のかわりに使わないこと。**
+   *   「みんなで鳴く」（§6）は場所ごとに高さを変えて鳴らす
+   */
+  playOneShot(name: OneShot, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || this.disabled) return;
 
@@ -653,10 +683,19 @@ export class AudioBus {
     // ワサワサ（rustle）だけは別枠。ふたが開く音と跳ねる音は
     // 同じ瞬間に鳴ることがあり、片方が消えると動きと音がずれて聞こえる
     const now = ctx.currentTime;
-    const gate = name === 'rustle' ? this.lastRustle : this.lastOneShot;
+    const gate =
+      name === 'rustle'
+        ? this.lastRustle
+        : name === 'thud'
+          ? this.lastThud
+          : name === 'peep'
+            ? this.lastPeep
+            : this.lastOneShot;
     const minGap = name === 'rustle' ? 0.18 : 0.05;
     if (now - gate < minGap) return;
     if (name === 'rustle') this.lastRustle = now;
+    else if (name === 'thud') this.lastThud = now;
+    else if (name === 'peep') this.lastPeep = now;
     else this.lastOneShot = now;
 
     if (name === 'rustle') {
@@ -671,7 +710,23 @@ export class AudioBus {
     osc.type = 'sine';
     osc.connect(gain);
 
-    if (name === 'hop') {
+    // 高さの倍率。**極端に振らせない**（別の音に聞こえる）
+    const k = Math.max(0.8, Math.min(1.25, pitch));
+
+    if (name === 'peep') {
+      // §6「みんなで鳴く」。**「ばあっ！」を使わないこと。**
+      // 隠れたままなのに「ばあっ」と言うのは、いちばん紛らわしい間違いだった
+      // （2026-09-07 に実機で指摘）。短く上がって落ちる、鳴き声らしい2音
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(540 * k, now);
+      osc.frequency.exponentialRampToValueAtTime(820 * k, now + 0.07);
+      osc.frequency.exponentialRampToValueAtTime(430 * k, now + 0.22);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(ONE_SHOT_PEAK * 0.5, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.32);
+    } else if (name === 'hop') {
       // ぴょん。**短く、上がって終わる。** 落ちる音にすると
       // 「着地に失敗した」ように聞こえて、跳ねている絵と合わない（§4-5）
       osc.type = 'triangle';
@@ -694,6 +749,19 @@ export class AudioBus {
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
       osc.start(now);
       osc.stop(now + 0.42);
+    } else if (name === 'thud') {
+      // 足音（きょうりゅう・どうぶつえん）。**低く、短く、余韻を残さない。**
+      // スマホのスピーカーは 100Hz を下回るとほとんど鳴らないので、
+      // 120Hz から落として「ドスン」に聞こえる範囲に収めた。
+      // 60Hz まで下げた版は実機で無音に近く、鳴っているのが分からなかった
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(120, now);
+      osc.frequency.exponentialRampToValueAtTime(52, now + 0.16);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(ONE_SHOT_PEAK * 0.75, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
+      osc.start(now);
+      osc.stop(now + 0.28);
     } else if (name === 'plop') {
       // 低い音を短く落とす
       osc.frequency.setValueAtTime(420, now);

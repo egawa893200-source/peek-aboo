@@ -19,3 +19,7 @@ dist-ssr/
 
 # 採点の重なり画像は npm run match-score で再生成できる
 /capture/m1-*.png
+
+# 確認用に撮った画面写真は、どれも撮り直せる。
+# **残すのは記録だけ**（match-score.json と pose/index.json）
+/capture/*.png
