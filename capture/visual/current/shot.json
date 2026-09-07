@@ -1,0 +1,11 @@
+{
+  "scenes": [
+    "ouchi"
+  ],
+  "seed": 20260907,
+  "atSec": 2,
+  "viewport": {
+    "width": 412,
+    "height": 839
+  }
+}

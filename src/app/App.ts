@@ -336,6 +336,45 @@ export class App {
        */
       setScene: (id: string, seed?: number): Promise<void> => this.loadScene(id, seed),
       /**
+       * **見た目の採点用（`npm run visual`）。** 場面を読み込み、更新時計を 0 に
+       * 戻してから、ちょうど `seconds` ぶんだけ進めて1枚描いて止める。
+       *
+       * rAF を回したまま撮ると、GPU の速さで何ステップ進んだかが変わって
+       * 同じコードでも絵が変わる。**採点は「2回撮ってバイト単位で一致」を
+       * 前提にしている**ので、ここで壁時計を切り離す（`Loop.stepExact`）。
+       */
+      freezeAt: async (id: string, seed: number, seconds: number): Promise<void> => {
+        this.loop.pause();
+        await this.loadScene(id, seed);
+        this.loop.resetClock();
+        this.loop.stepExact(Math.round(seconds * 60));
+      },
+      /**
+       * 隠れ場所（と、その中の動物・接地影）だけを消してもう1枚描く。
+       * **見た目の採点用。** 2枚の差が、そのまま「隠れ場所の画素」になる。
+       *
+       * 位置と半径から矩形を推し量ると、隣とぶつかったり背景を巻き込んだりして
+       * 数字が動く。**消して撮る**ほうが、輪郭ちょうどで切り出せる。
+       */
+      setSpotsVisible: (visible: boolean): void => {
+        if (this.sceneRoot) this.sceneRoot.spots.group.visible = visible;
+        this.loop.stepExact(0);
+      },
+      /**
+       * 接地影だけを消してもう1枚描く。**見た目の採点用。**
+       *
+       * 影は隠れ場所の子なので、`setSpotsVisible(false)` では影も一緒に消える。
+       * つまり「隠れ場所の画素」に影のぼんやりした裾まで入ってしまい、
+       * 内部の陰影を測る数字が影のグラデーションで水増しされる。
+       * 影を消した1枚を別に撮って、**本体だけ**を切り出す。
+       */
+      setShadowsVisible: (visible: boolean): void => {
+        this.sceneRoot?.spots.group.traverse((o) => {
+          if (o.name === 'contactShadow') o.visible = visible;
+        });
+        this.loop.stepExact(0);
+      },
+      /**
        * 隠れ場所の状態と、画面上の位置・**実際に使っている当たり半径**。
        * 当たり判定どうしの距離はここから測る（§3-2）。
        */

@@ -102,6 +102,39 @@ export class Loop {
     this.start();
   }
 
+  /**
+   * **撮影ハーネス専用。** 壁時計を読まずに n ステップだけ進めて1回描く。
+   *
+   * 見た目の採点（`npm run visual`）は「同じ状態を2回撮ったらバイト単位で
+   * 一致する」ことが前提になる。rAF を回したまま撮ると、GPU の速さで
+   * 何ステップ進んだかが変わり、同じコードでも絵が変わってしまう
+   * （CLAUDE.md「タイミングの合否は壁時計で測らない」と同じ話）。
+   *
+   * `rawDelta` は 1/60 に固定する。`QualityManager` がこれを見て解像度を
+   * 下げるので、固定しないと撮影のたびに解像度が変わる。
+   */
+  stepExact(steps: number): void {
+    this.pause();
+    this.rawDelta = FIXED_DT;
+    for (let i = 0; i < steps; i++) {
+      this.elapsed += FIXED_DT;
+      this.frame++;
+      const ctx: FrameContext = { dt: FIXED_DT, elapsed: this.elapsed, frame: this.frame };
+      for (let k = 0; k < this.updateFns.length; k++) {
+        this.updateFns[k](ctx);
+      }
+    }
+    this.frameCount++;
+    this.renderFn?.(0, this.elapsed);
+  }
+
+  /** 更新時計を 0 に戻す。**撮影ハーネス専用**（`stepExact` と対で使う） */
+  resetClock(): void {
+    this.elapsed = 0;
+    this.frame = 0;
+    this.accumulator = 0;
+  }
+
   dispose(): void {
     this.pause();
     document.removeEventListener('visibilitychange', this.onVisibility);
