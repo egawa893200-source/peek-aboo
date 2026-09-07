@@ -28,8 +28,9 @@
 
 import * as THREE from 'three';
 
-import { FORM_SHADING } from '../data/look';
+import { FORM_SHADING, SURFACE_TILE } from '../data/look';
 import type { SpotKind } from '../types';
+import { createSurfaceTexture } from './SpotTextures';
 
 /**
  * three のリソースを1つ残らず捨てる（不変条件8）。
@@ -211,7 +212,10 @@ function plate(
  */
 export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape {
   const shape = buildSpotShape(kind, spotY, spotX);
-  applyFormShading(shape.group);
+  // **隠れ場所ごとに種を変える。** 同じ形が5つ並ぶ のはら で、
+  // まったく同じ模様だと「判で押した」ように見える
+  const seed = (Math.round((spotX + 8) * 977) * 131 + Math.round((spotY + 8) * 977)) >>> 0;
+  applySurface(shape.group, kind, seed);
   return shape;
 }
 
@@ -240,7 +244,10 @@ const _shadeVec = new THREE.Vector3();
  * 傾きが割れ目でリセットされ、そこに段差が出る。
  * ==========================================================================
  */
-function applyFormShading(group: THREE.Group): void {
+function applySurface(group: THREE.Group, kind: SpotKind, seed: number): void {
+  const surface = createSurfaceTexture(kind, seed);
+  const touched = new Set<THREE.Material>();
+
   group.updateMatrixWorld(true);
   _shadeBox.setFromObject(group);
   const minY = _shadeBox.min.y;
@@ -268,11 +275,38 @@ function applyFormShading(group: THREE.Group): void {
     }
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
+    // 模様の UV は、**隠れ場所の座標に平面投影する**。
+    //
+    // 面ごとの既定の UV（0..1）をそのまま使うと、板の大きさによって
+    // 模様の粗さが変わる（細い縁の板に木目が丸ごと1枚入る）。
+    // それに、たまごの殻とふたのように「1つの形を2つに割ったもの」で
+    // 模様が割れ目で切り替わる。**カメラは動物を最大 17° しか回り込まない**
+    // ので、真横を向いた面が伸びることは問題にならない
+    const uv = geometry.getAttribute('uv');
+    if (surface && uv) {
+      const uvs = new Float32Array(position.count * 2);
+      for (let i = 0; i < position.count; i++) {
+        _shadeVec.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+        uvs[i * 2] = _shadeVec.x / SURFACE_TILE;
+        uvs[i * 2 + 1] = _shadeVec.y / SURFACE_TILE;
+      }
+      geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    }
+
     // **同じ material を使う板が1枚でも color を持たないと、そこが黒くなる。**
     // だから「全メッシュに塗る」ここでまとめて立てる
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
-      (material as THREE.MeshStandardMaterial).vertexColors = true;
+      const standardMaterial = material as THREE.MeshStandardMaterial;
+      standardMaterial.vertexColors = true;
+      // **material は板どうしで使い回されている。** 色の補正は1回だけ掛ける
+      if (surface && !touched.has(material)) {
+        touched.add(material);
+        standardMaterial.map = surface.texture;
+        // 模様は色に掛け算されるので、貼っただけで平均の明るさが下がる。
+        // そのぶんを色で戻す（戻さないと背景との明度差 V1 が落ちて見つけにくくなる）
+        standardMaterial.color.multiplyScalar(1 / surface.mean);
+      }
       material.needsUpdate = true;
     }
   });
