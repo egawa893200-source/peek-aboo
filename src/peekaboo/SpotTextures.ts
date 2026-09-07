@@ -199,24 +199,38 @@ const wood: Painter = (ctx, rng) => {
 
 /** 布の襞。カーテン・ふとん。**縦のゆるい山谷**で作る */
 const fabric: Painter = (ctx, rng) => {
-  const folds = 5 + Math.floor(rng() * 3);
-  for (let i = 0; i < folds; i++) {
-    const x = (i * SIZE) / folds;
-    const w = SIZE / folds;
-    // **山と谷を等間隔の硬い縞にしないこと。**
-    // 判定で「布のはずが等間隔の硬いリブになり、トタン板に見える」と
-    // 言われた。谷を柔らかく、幅も襞ごとに変える
-    const g = ctx.createLinearGradient(x, 0, x + w, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0.20)');
-    g.addColorStop(0.18, 'rgba(0,0,0,0.06)');
-    g.addColorStop(0.44 + rng() * 0.14, 'rgba(255,255,255,0.30)');
-    g.addColorStop(0.82, 'rgba(0,0,0,0.06)');
-    g.addColorStop(1, 'rgba(0,0,0,0.20)');
+  // ==========================================================================
+  // **等間隔の山谷にしないこと。**
+  // 幅をそろえた襞を並べると、隣り合う襞の暗い端どうしが1本の濃い線になり、
+  // 布ではなく**トタン板**に見える（判定で実機の絵を見て指摘された）。
+  //
+  // 襞の位置も幅も不揃いにして、山（明るい帯）と皺（細い暗い線）を
+  // 別々に置く。境目を作らないので、隣とゆるくつながる。
+  // ==========================================================================
+  const peaks = 4 + Math.floor(rng() * 3);
+  for (let i = 0; i < peaks; i++) {
+    const x = ((i + rng() * 0.8 - 0.4) * SIZE) / peaks;
+    const w = SIZE / peaks * (0.7 + rng() * 0.8);
+    const g = ctx.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.5, `rgba(255,255,255,${(0.22 + rng() * 0.18).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
-    for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x + dx, 0, w, SIZE);
+    for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x - w / 2 + dx, 0, w, SIZE);
+  }
+  // 皺。山のあいだに、細く柔らかい影を落とす
+  for (let i = 0; i < peaks + 2; i++) {
+    const x = rng() * SIZE;
+    const w = 8 + rng() * 26;
+    const g = ctx.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.5, `rgba(0,0,0,${(0.16 + rng() * 0.16).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x - w / 2 + dx, 0, w, SIZE);
   }
   // 織り目。ごく薄く
-  ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.04)';
   ctx.lineWidth = 1;
   for (let i = 0; i < SIZE; i += 5) {
     ctx.beginPath();

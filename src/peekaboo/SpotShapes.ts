@@ -219,7 +219,7 @@ export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape
   // （判定の実測: 5株の輪郭の重なり IoU が 0.847〜0.903）
   const seed = (Math.round((spotX + 8) * 977) * 131 + Math.round((spotY + 8) * 977)) >>> 0;
   const shape = buildSpotShape(kind, spotY, spotX, seed);
-  fitBackPlates(shape);
+  fitBackPlates(shape, kind);
   applySurface(shape.group, kind, seed);
   return shape;
 }
@@ -227,6 +227,8 @@ export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape
 /** 使い捨て。**毎フレーム走る道ではない**が、作法をそろえておく（§10-3） */
 const _shadeBox = new THREE.Box3();
 const _backBox = new THREE.Box3();
+/** 背板を楕円にする隠れ場所（前面が丸い塊のもの） */
+const ROUND_BACK: ReadonlySet<SpotKind> = new Set<SpotKind>(['bush', 'rock', 'pot', 'egg']);
 
 /**
  * 背板を、見えている本体の外接箱に収める。
@@ -247,7 +249,7 @@ const _backBox = new THREE.Box3();
  * たまごの背板（半楕円）は伸ばすと角が出るので触らない（`BoxGeometry` だけ）。
  * ==========================================================================
  */
-function fitBackPlates(shape: SpotShape): void {
+function fitBackPlates(shape: SpotShape, kind: SpotKind): void {
   const group = shape.group;
   const backs: THREE.Mesh[] = [];
   group.traverse((object) => {
@@ -278,15 +280,21 @@ function fitBackPlates(shape: SpotShape): void {
   const centerY = (top + _backBox.min.y) / 2;
 
   for (const back of backs) {
-    // **四角いままだと、丸い塊のまわりに板の角が残る。**
-    // 大きさを本体に合わせただけでは足りず、実機の絵で
-    // 岩とうえきばちの背後に灰色／茶色の長方形がはっきり見えていた。
-    // 楕円にすると、丸い塊（岩・鉢・くさむら）の裏に完全に隠れる。
-    // 四角い隠れ場所（はこ・とびら）は前面が不透明なので、
-    // 楕円でも隙間はできない（遮蔽のテストが見張っている）
+    // **背板の形は、前面の形に合わせる。**
+    //
+    // 丸い塊（岩・鉢・くさむら・たまご）に四角い背板を当てると、
+    // まわりに板の角が残る（実機の絵で灰色／茶色の長方形が見えていた）。
+    // 逆に、四角い隠れ場所（はこ・カーテン・ふとん・とびら）に楕円を当てると、
+    // **前面の四角からはみ出した弧が黒い三日月として覗く**
+    // （判定の実測: かーてんの左に暗いえんじ色の三日月、ふとんの上端に黒い弧）。
     const z = back.position.z;
     back.geometry.dispose();
-    back.geometry = new THREE.CircleGeometry(0.5, 28);
+    back.geometry = ROUND_BACK.has(kind)
+      ? new THREE.CircleGeometry(0.5, 28)
+      : new THREE.PlaneGeometry(1, 1);
+    // **外接箱ぴったりにする。** 0.94 に詰めた版は、遮蔽のテストが
+    // 2件の漏れを捕まえた（2026-09-07）。横に張り出した部品
+    // （カーテンのレールなど）のぶんまで広がるのは承知のうえ
     back.scale.set(wantW, wantH, 1);
     back.position.set(centerX, centerY, z);
   }
@@ -414,7 +422,7 @@ function buildSpotShape(kind: SpotKind, spotY: number, spotX: number, seed: numb
     case 'bush':
       return createBush(palette, seed);
     case 'rock':
-      return createRock(palette, spotY);
+      return createRock(palette, spotY, seed);
     case 'water':
       return createWater(palette);
     case 'hollow':
@@ -794,7 +802,8 @@ function browShift(spotY: number): number {
  * くさむらと同じで**中央に隙間を残さない**。
  * 深さも同じだけ取ってある（背の高い動物が入るため。`coverBottomY` の注記）。
  */
-function createRock(p: Palette, spotY: number): SpotShape {
+function createRock(p: Palette, spotY: number, seed: number): SpotShape {
+  const rng = seededRandom(seed);
   const group = new THREE.Group();
   const stone = standard(p.cover, 0.95);
 
@@ -864,17 +873,37 @@ function createRock(p: Palette, spotY: number): SpotShape {
   // 上端をちょうど縁に合わせた版では、出てきた動物の下半分が庇に隠れて
   // 見えている割合が 53% まで落ちた（判定は 55%）。
   // 見込み角ぶん（0.10）下げる
-  const brow = plate(
-    'rock.brow',
-    W + 0.05,
-    HALF_H * 0.43,
-    0.24,
-    stone,
-    0,
-    HALF_H * 0.785 - browShift(spotY),
-    FRONT_Z - 0.02
-  );
+  //
+  // **四角い板にしないこと**（2026-09-07）。
+  // W+0.05 の長方形を1枚置いていたら、判定で
+  // 「両端を直角に切り落とした長方形が岩より左右に約30px 突き出し、
+  //  天面の L* の四分位範囲が 4.91（真下の岩の玉は 10.97）で、
+  //  石ではなく板に見える」と5場面すべてで指摘された。
+  //
+  // 覆う役目は**芯の板**が持ったまま（下端を動かさない＝覆う量を変えない）、
+  // その上と両端に岩の瘤を重ねて輪郭を崩す。
+  const browH = HALF_H * 0.43;
+  const browY = HALF_H * 0.785 - browShift(spotY);
+  // **芯の幅は詰めすぎない。** W×0.78 まで細くしたら、遮蔽のテストが
+  // うみ の いわ で 7点、のうじょう の さく で 1点の漏れを捕まえた
+  const brow = plate('rock.brow', W * 0.95, browH, 0.24, stone, 0, browY, FRONT_Z - 0.02);
   group.add(brow);
+
+  const browTop = browY + browH / 2;
+  // **端まで瘤を置くこと。** 5個で W×0.72 の範囲に置いた版では、
+  // 芯の板の左右の端だけが平らな棒として残っていた（実機の絵で確認）
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6 - 0.5;
+    const lump = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), stone);
+    lump.name = `rock.brow.lump.${i}`;
+    const rx = W * (0.13 + rng() * 0.07);
+    const ry = browH * (0.44 + rng() * 0.2);
+    lump.scale.set(rx, ry, 0.13);
+    // **下端は芯の板より下げない。** 下げると出てきた動物に掛かる
+    lump.position.set(t * W * 0.98, browTop - ry * (0.45 + rng() * 0.25), FRONT_Z - 0.02);
+    lump.rotation.z = (rng() - 0.5) * 0.4;
+    group.add(lump);
+  }
 
   const openX = W * 0.36;
 

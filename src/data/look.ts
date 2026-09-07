@@ -115,7 +115,7 @@ export const DROP_SHADOW = {
    * **影を濃くして稼がないこと。** 濃くした版は背景まで暗くして、
    * 暗い隠れ場所の輪郭の明度差 V1 を下げた（基準外 21 → 25 件）
    */
-  roundOffsetScale: 2.6,
+  roundOffsetScale: 3.1,
 };
 
 /**
