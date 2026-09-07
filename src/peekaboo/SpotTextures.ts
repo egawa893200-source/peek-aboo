@@ -133,24 +133,28 @@ type Painter = (ctx: CanvasRenderingContext2D, rng: () => number) => void;
 
 /** 板を横に張った箱。**継ぎ目を強く**（ここが L\* の幅をいちばん作る） */
 const plank: Painter = (ctx, rng) => {
-  const rows = 4;
+  // **細かく刻まないこと。** 1タイル（0.85）に4枚だと板1枚が画面 26px になり、
+  // 継ぎ目の明るいふちと合わさって**波板シャッター**に見えた（判定の指摘）。
+  // 2枚なら 53px で、木箱の板らしい間隔になる
+  const rows = 2;
   const h = SIZE / rows;
   for (let i = 0; i < rows; i++) {
     const y0 = i * h;
     // 板ごとに明るさを変える。同じ板が並ぶと「壁紙」に見える
-    ctx.fillStyle = tone((rng() * 2 - 1) * 0.17);
+    ctx.fillStyle = tone((rng() * 2 - 1) * 0.23);
     ctx.fillRect(0, y0, SIZE, h);
     // 板1枚の中の丸み。上が明るく、下が暗い。**ここが明暗の幅をいちばん作る**
     const round = ctx.createLinearGradient(0, y0, 0, y0 + h);
-    round.addColorStop(0, 'rgba(255,255,255,0.20)');
+    round.addColorStop(0, 'rgba(255,255,255,0.27)');
     round.addColorStop(0.42, 'rgba(255,255,255,0.05)');
-    round.addColorStop(1, 'rgba(0,0,0,0.22)');
+    round.addColorStop(1, 'rgba(0,0,0,0.28)');
     ctx.fillStyle = round;
     ctx.fillRect(0, y0, SIZE, h);
     // 継ぎ目
-    ctx.fillStyle = 'rgba(0,0,0,0.44)';
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
     ctx.fillRect(0, y0 - 1.5, SIZE, 3);
-    ctx.fillStyle = 'rgba(255,255,255,0.30)';
+    // **明るいふちを強くしない。** 継ぎ目ごとに光る筋が入ると金属に見える
+    ctx.fillStyle = 'rgba(255,255,255,0.13)';
     ctx.fillRect(0, y0 + 1.5, SIZE, 2);
   }
   // 板目
@@ -213,7 +217,7 @@ const fabric: Painter = (ctx, rng) => {
     const w = SIZE / peaks * (0.7 + rng() * 0.8);
     const g = ctx.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
     g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.5, `rgba(255,255,255,${(0.22 + rng() * 0.18).toFixed(3)})`);
+    g.addColorStop(0.5, `rgba(255,255,255,${(0.30 + rng() * 0.20).toFixed(3)})`);
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
     for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x - w / 2 + dx, 0, w, SIZE);
@@ -236,6 +240,44 @@ const fabric: Painter = (ctx, rng) => {
     ctx.beginPath();
     ctx.moveTo(0, i);
     ctx.lineTo(SIZE, i);
+    ctx.stroke();
+  }
+};
+
+/**
+ * 掛け布団。**カーテンと同じ縦の襞にしない。**
+ * 掛かっている布は縦に落ちるが、掛け布団はふくらむ。
+ * 縦の襞を当てていたら「塗装した波板・樹脂の道具箱」と言われた（判定）。
+ */
+const quilt: Painter = (ctx, rng) => {
+  const cells = 3;
+  for (let gy = -1; gy <= cells; gy++) {
+    for (let gx = -1; gx <= cells; gx++) {
+      const x = ((gx + 0.5 + (rng() - 0.5) * 0.4) * SIZE) / cells;
+      const y = ((gy + 0.5 + (rng() - 0.5) * 0.4) * SIZE) / cells;
+      const r = (SIZE / cells) * (0.45 + rng() * 0.25);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(255,255,255,${(0.24 + rng() * 0.16).toFixed(3)})`);
+      g.addColorStop(0.66, 'rgba(255,255,255,0.04)');
+      g.addColorStop(1, 'rgba(0,0,0,0.20)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // 縫い目。斜めに、ごく薄く
+  ctx.strokeStyle = 'rgba(0,0,0,0.055)';
+  ctx.lineWidth = 1.2;
+  for (let i = -cells; i <= cells * 2; i++) {
+    const at = (i * SIZE) / cells;
+    ctx.beginPath();
+    ctx.moveTo(at, 0);
+    ctx.lineTo(at + SIZE, SIZE);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(at, SIZE);
+    ctx.lineTo(at + SIZE, 0);
     ctx.stroke();
   }
 };
@@ -343,12 +385,18 @@ const water: Painter = (ctx, rng) => {
 
 /** 素焼き。轆轤の輪と、焼きむら */
 const clay: Painter = (ctx, rng) => {
-  for (let i = 0; i < 16; i++) {
-    const y = (i * SIZE) / 16 + rng() * 3;
-    ctx.fillStyle = `rgba(0,0,0,${(0.08 + rng() * 0.09).toFixed(3)})`;
-    for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy, SIZE, 2.5);
-    ctx.fillStyle = 'rgba(255,255,255,0.14)';
-    for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy + 2.5, SIZE, 2);
+  // **等間隔の細い溝を刻まないこと。** 16本／タイルだと溝の間隔が画面 6.6px になり、
+  // 「旋盤で挽いたプラスチックの鉢」に見えた（判定の指摘）。
+  // 手びねりの素焼きらしく、太さも間隔も不揃いの、ぼやけた輪にする
+  for (let i = 0; i < 6; i++) {
+    const y = (i * SIZE) / 6 + rng() * 14;
+    const h = 3 + rng() * 7;
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.5, `rgba(0,0,0,${(0.07 + rng() * 0.07).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy, SIZE, h);
   }
   // **斑点を置かない**（2026-09-07）。石・葉・殻と同じ楕円の斑点が
   // 全部の隠れ場所に乗って「どれも同じ汚れた板」に見えると判定で言われた。
@@ -380,7 +428,7 @@ const PAINTERS: Record<SpotKind, Painter> = {
   door: wood,
   hollow: wood,
   curtain: fabric,
-  blanket: fabric,
+  blanket: quilt,
   bush: foliage,
   rock: stone,
   water,
