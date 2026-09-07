@@ -46,6 +46,8 @@ function camera(): THREE.PerspectiveCamera {
 import { findScene, SCENES } from '../../src/data/scenes';
 import {
   BUBBLE_COUNT,
+  CAMEO_EVERY_SEC,
+  CAMEO_TOTAL_SEC,
   CHORUS_EVERY_SEC,
   CROSS_GAP_SEC,
   CROSS_SEC,
@@ -1924,6 +1926,66 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
       flavor.update(DT);
     }
     expect(flavor.getLeftovers().alive).toBe(0);
+    flavor.dispose();
+  });
+
+  it('もう1匹は、本人の居場所と行き先には出ない（§4-5 を邪魔しない）', () => {
+    // ==========================================================================
+    // **`AnimalSystem` のスロットを使わない脇役。**
+    // 使うと `ChaseSystem` と同じ隠れ場所を取り合って、
+    // 跳ねているうさぎが草むらに吸い込まれる（§4-5 の `driven` と同じ話）。
+    // ここでは「本人の居場所と行き先には出ない」「移動中は出ない」を見る。
+    // ==========================================================================
+    const { spots, chase, advance } = chaseRig(31);
+    const flavor = new Flavor(spots.runtimes, { cameo: true }, { seed: 12 });
+
+    const dummy = new THREE.Object3D();
+    flavor.setCameo(dummy, 1, () => ({
+      busy: chase.isMoving(),
+      avoidSpotId: chase.getAnswerSpot().config.id,
+    }));
+
+    let sawCameo = false;
+    let bad = 0;
+    advance(CAMEO_EVERY_SEC * 4, () => {
+      flavor.update(DT);
+      const id = flavor.getCameoSpotId();
+      if (!id) return;
+      sawCameo = true;
+      // 本人の行き先に出ていたら、取り合いになっている
+      if (id === chase.getAnswerSpot().config.id) bad++;
+      // 移動中に出たままなら、跳ねているところに割り込んでいる
+      if (chase.isMoving()) bad++;
+    });
+
+    expect(sawCameo).toBe(true);
+    expect(flavor.getCameoCount()).toBeGreaterThanOrEqual(1);
+    expect(bad).toBe(0);
+    flavor.dispose();
+  });
+
+  it('もう1匹は、出しっぱなしにならない（必ず引っ込む）', () => {
+    const { spots, chase, advance } = chaseRig(31);
+    const flavor = new Flavor(spots.runtimes, { cameo: true }, { seed: 12 });
+    const dummy = new THREE.Object3D();
+    flavor.setCameo(dummy, 1, () => ({
+      busy: chase.isMoving(),
+      avoidSpotId: chase.getAnswerSpot().config.id,
+    }));
+
+    let longest = 0;
+    let run = 0;
+    advance(CAMEO_EVERY_SEC * 4, () => {
+      flavor.update(DT);
+      if (flavor.getCameoSpotId()) run++;
+      else {
+        longest = Math.max(longest, run);
+        run = 0;
+      }
+    });
+    expect(longest).toBeGreaterThan(0);
+    // 出ている時間は決められた長さを超えない（1フレームぶんの丸めを許す）
+    expect(longest * DT).toBeLessThanOrEqual(CAMEO_TOTAL_SEC + DT);
     flavor.dispose();
   });
 

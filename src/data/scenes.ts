@@ -139,7 +139,7 @@ const NOHARA: SceneConfig = {
   sky: ["#7fb6d8", "#2f4a26"],
   // のはら。草がひとわたり揺れる。**横切るものは置かない**
   // （うさぎを目で追う場面なので、ほかに動くものがあると気が散る）
-  flavor: { sway: "wind", footprints: true },
+  flavor: { sway: "wind", footprints: true, cameo: true },
   label: "のはら",
   mode: "chase",
   backgroundUrl: null,

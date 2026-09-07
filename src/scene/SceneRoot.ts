@@ -20,6 +20,8 @@ import { ChaseSystem } from '../peekaboo/ChaseSystem';
 import { EmptySpot } from '../peekaboo/EmptySpot';
 import { disposeObject3D } from '../peekaboo/SpotShapes';
 import { SpotShuffle } from '../peekaboo/SpotShuffle';
+import { createCutoutAnimal } from '../peekaboo/CutoutAnimal';
+import { createProceduralAnimal } from '../peekaboo/ProceduralAnimals';
 import { SpotSystem } from '../peekaboo/SpotSystem';
 import { createBackdropTexture, createContactShadow, createShadowTexture } from './Backdrop';
 import { Flavor } from './Flavor';
@@ -37,6 +39,8 @@ export class SceneRoot {
   readonly empty: EmptySpot;
   /** 場面ごとの味つけ（`SceneConfig.flavor`）。何も指定が無ければ何も起きない */
   readonly flavor: Flavor;
+  /** もう1匹（§6 の〈大〉）の見た目。**`Flavor` は捨てない**ので、ここで捨てる */
+  private cameo: { dispose(): void } | null = null;
 
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
@@ -205,11 +209,37 @@ export class SceneRoot {
     const empty = new EmptySpot(spots);
     spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
 
+    /** もう1匹の見た目。**作った側で捨てる**（不変条件8） */
+    let cameoBuilt: { dispose(): void } | null = null;
+
     // 場面ごとの味つけ（2026-09-07）。**`config.flavor` を読むだけ。**
     // 場面 id で分岐しない（`Flavor.ts` 冒頭の理由）
     const flavor = new Flavor(spots.runtimes, config.flavor, {
       ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed ^ 0x1b873593 } : {}),
     });
+
+    // もう1匹（§6 の〈大〉）。**追いかけっこの相手ではない脇役。**
+    // `AnimalSystem` のスロットを使わない（使うと `ChaseSystem` と
+    // 同じ隠れ場所を取り合って、跳ねているうさぎが吸い込まれる）。
+    // 見た目だけここで作って `Flavor` に渡す
+    if (chase && config.flavor?.cameo && config.runner) {
+      const cfg = findAnimal(config.runner);
+      const tex = cutouts.get(config.runner);
+      // 絵が無ければ手続き生成に落ちる（不変条件7）
+      const built = cfg ? (tex ? createCutoutAnimal(cfg, tex) : createProceduralAnimal(cfg)) : null;
+      if (built) {
+        // 本人と同じ大きさに揃える。**少しだけ小さくする**（子に見える）
+        const runnerSlot = animals.getSlot(spots.runtimes[0].config.id);
+        const scale = (runnerSlot?.fitScale ?? cfg!.scale) * 0.86;
+        built.group.scale.setScalar(scale);
+        built.hint.visible = false;
+        cameoBuilt = built;
+        flavor.setCameo(built.group, built.height * scale, () => ({
+          busy: chase!.isMoving(),
+          avoidSpotId: chase!.getAnswerSpot().config.id,
+        }));
+      }
+    }
 
     // 足あと（§6 の〈中〉）。**跳ねた場所に置く。**
     // 走り手はモードBに1体しか居ないので、居るスロットを探して世界座標を取る。
@@ -229,7 +259,9 @@ export class SceneRoot {
       });
     }
 
-    return new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdrop, shadowTexture, shadows, cutouts);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdrop, shadowTexture, shadows, cutouts);
+    root.cameo = cameoBuilt;
+    return root;
   }
 
   /**
@@ -262,6 +294,7 @@ export class SceneRoot {
     // 影の板は `SpotSystem` の子だが、あちらは捨ててくれない
     for (const shadow of this.shadows) disposeObject3D(shadow, { keepTextures: true });
     this.flavor.dispose();
+    this.cameo?.dispose();
     this.backdrop?.dispose();
     this.shadowTexture?.dispose();
     this.empty.dispose();

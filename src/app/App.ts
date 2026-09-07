@@ -184,6 +184,10 @@ export class App {
       // **押していないのに鳴る唯一の声**なので、ばあより控えめに聞こえるよう
       // ピッチだけ振って、同じ「ばあっ！」を使う
       next.flavor.onCall((_spot, pitch) => this.audio.playVoice('baa', pitch));
+      // もう1匹（§6 の〈大〉）。**声は出さない。**
+      // 押していないのに「ばあっ！」と鳴ると、どれが自分の押した結果か
+      // 分からなくなる。草をかき分ける音だけ返す
+      next.flavor.onCameo(() => this.audio.playOneShot('rustle'));
     } finally {
       this.building = false;
     }
@@ -272,6 +276,8 @@ export class App {
         leftovers: { alive: number; total: number };
         shadows: number;
         shadowSpotId: string | null;
+        cameos: number;
+        cameoSpotId: string | null;
       } | null => {
         const flavor = this.sceneRoot?.flavor;
         if (!flavor) return null;
@@ -288,6 +294,8 @@ export class App {
           leftovers: flavor.getLeftovers(),
           shadows: flavor.getShadowCount(),
           shadowSpotId: flavor.getShadowSpotId(),
+          cameos: flavor.getCameoCount(),
+          cameoSpotId: flavor.getCameoSpotId(),
         };
       },
       getFrameCount: (): number => this.loop.frameCount,

@@ -201,6 +201,20 @@ const SHADOW_OPACITY = 0.34;
  */
 const SHADOW_Z = 0.34;
 
+/* --- もう1匹（のはら）---------------------------------------------------- */
+
+/** 出てくる間隔。**追いかけっこの邪魔をしない程度に空ける** */
+export const CAMEO_EVERY_SEC = 13;
+/** 出るまで／出たまま／引っ込むまで */
+const CAMEO_RISE_SEC = 0.5;
+const CAMEO_HOLD_SEC = 1.3;
+const CAMEO_SINK_SEC = 0.5;
+export const CAMEO_TOTAL_SEC = CAMEO_RISE_SEC + CAMEO_HOLD_SEC + CAMEO_SINK_SEC;
+/** 隠れているときに縁より下へ沈める量（`AnimalSystem.HIDDEN_SINK` と同じ考え） */
+const CAMEO_SINK = 0.06;
+/** 出きったとき、縁からどれだけ上に出るか（同 `OUT_LIFT`） */
+const CAMEO_LIFT = 0.95;
+
 /* --- 残るもの（花・卵）---------------------------------------------------- */
 
 /** 引っ込んだあと残る割合。**毎回残すと「置き物」になって気づかれない** */
@@ -272,6 +286,20 @@ interface FootprintRuntime {
   life: number;
 }
 
+/** もう1匹を出してよいか。`SceneRoot` が `ChaseSystem` を見て答える */
+export interface CameoInfo {
+  /** 移動中など、いま割り込んではいけない */
+  busy: boolean;
+  /** 本人が居る（or 向かっている）隠れ場所。ここには出さない */
+  avoidSpotId: string;
+}
+
+interface CameoSetup {
+  object: THREE.Object3D;
+  height: number;
+  info: () => CameoInfo;
+}
+
 /** 残るもの（花・卵）1つぶん */
 interface LeftoverRuntime {
   group: THREE.Object3D;
@@ -312,6 +340,14 @@ export class Flavor {
   private shadowWait = SHADOW_EVERY_SEC * 0.7;
   private shadowT = 0;
   private shadows = 0;
+
+  /** もう1匹（のはら）。`SceneRoot` が見た目を作って渡す */
+  private cameo: CameoSetup | null = null;
+  private cameoSpot: SpotRuntime | null = null;
+  private cameoWait = CAMEO_EVERY_SEC * 0.8;
+  private cameoT = 0;
+  private cameos = 0;
+  private readonly cameoFns: FlavorEvent[] = [];
 
   /** 横切るもの。1匹ぶんの見た目と、いま渡っているかどうか */
   private crossing: THREE.Object3D | null = null;
@@ -395,6 +431,7 @@ export class Flavor {
     this.updateFootprints(dt);
     this.updateLeftovers(dt);
     this.updateShadow(dt);
+    this.updateCameo(dt);
   }
 
   /** 遷移を拾って、足音と地ひびきを仕込む */
@@ -786,6 +823,99 @@ export class Flavor {
     return group;
   }
 
+  /* --- もう1匹（のはら）--------------------------------------------------- */
+
+  /**
+   * もう1匹の見た目を受け取る。`SceneRoot` が作る
+   * （`Flavor` は絵も `AnimalSystem` も知らない）。
+   *
+   * @param info いま出してよいか。移動中は出さない（`ChaseSystem` と
+   *   同じ隠れ場所を取り合わないため）。`avoidSpotId` は本人が居る場所
+   */
+  setCameo(object: THREE.Object3D, height: number, info: () => CameoInfo): void {
+    if (!this.flavor.cameo) return;
+    object.visible = false;
+    this.cameo = { object, height, info };
+  }
+
+  /** もう1匹が顔を出したときのイベント（音は `App` が付ける） */
+  onCameo(fn: FlavorEvent): void {
+    this.cameoFns.push(fn);
+  }
+
+  /**
+   * ときどき、もう1匹が別の隠れ場所から顔を出す。
+   *
+   * **追いかけっこには一切関わらない。**
+   * `ChaseSystem` が動かす隠れ場所（本人の居場所と行き先）は避け、
+   * 移動が始まったらすぐ引っ込む。ここが `AnimalSystem` の
+   * スロットを取ると、跳ねているうさぎが吸い込まれる（§4-5 の `driven` と同じ話）。
+   */
+  private updateCameo(dt: number): void {
+    const cameo = this.cameo;
+    if (!cameo) return;
+    const info = cameo.info();
+
+    if (this.cameoSpot) {
+      // 移動が始まった／その場所が動きだしたら、すぐ引っ込める
+      const gone =
+        info.busy ||
+        this.cameoSpot.config.id === info.avoidSpotId ||
+        this.cameoSpot.state !== 'hidden';
+      this.cameoT += dt;
+      if (gone || this.cameoT >= CAMEO_TOTAL_SEC) {
+        cameo.object.visible = false;
+        if (cameo.object.parent) cameo.object.parent.remove(cameo.object);
+        this.cameoSpot = null;
+        this.cameoWait = CAMEO_EVERY_SEC;
+        return;
+      }
+      cameo.object.position.y = this.cameoY(this.cameoSpot, cameo, this.cameoT);
+      return;
+    }
+
+    this.cameoWait -= dt;
+    if (this.cameoWait > 0) return;
+    if (info.busy) return;
+
+    // 本人の居場所と行き先を避けて、隠れている空の場所から選ぶ
+    const free = this.spots.filter(
+      (s) => s.config.id !== info.avoidSpotId && s.state === 'hidden' && s.extraOpen === 0
+    );
+    if (free.length === 0) return;
+    const spot = free[Math.floor(this.rng() * free.length) % free.length];
+    this.cameoSpot = spot;
+    this.cameoT = 0;
+    this.cameos++;
+    spot.group.add(cameo.object);
+    cameo.object.position.set(0, this.cameoY(spot, cameo, 0), spot.shape.animalZ);
+    cameo.object.visible = true;
+    for (const fn of this.cameoFns) fn();
+  }
+
+  /** 出かたの高さ。上がって、待って、下がる */
+  private cameoY(spot: SpotRuntime, cameo: CameoSetup, t: number): number {
+    const hiddenY = spot.shape.coverTopY - cameo.height - CAMEO_SINK;
+    const outY = spot.shape.coverTopY - cameo.height * (1 - CAMEO_LIFT);
+    let u: number;
+    if (t < CAMEO_RISE_SEC) u = t / CAMEO_RISE_SEC;
+    else if (t < CAMEO_RISE_SEC + CAMEO_HOLD_SEC) u = 1;
+    else u = Math.max(0, 1 - (t - CAMEO_RISE_SEC - CAMEO_HOLD_SEC) / CAMEO_SINK_SEC);
+    // 出はじめを速く、止まりぎわを緩く（`AnimalSystem` と同じ手ざわり）
+    const eased = 1 - (1 - u) ** 3;
+    return hiddenY + (outY - hiddenY) * eased;
+  }
+
+  /** もう1匹が出た回数 */
+  getCameoCount(): number {
+    return this.cameos;
+  }
+
+  /** いま、もう1匹が出ている隠れ場所の id。出ていなければ null */
+  getCameoSpotId(): string | null {
+    return this.cameoSpot?.config.id ?? null;
+  }
+
   /** 影が出た回数 */
   getShadowCount(): number {
     return this.shadows;
@@ -1125,6 +1255,12 @@ export class Flavor {
       this.shadow = null;
       this.shadowSpot = null;
     }
+    // **もう1匹の見た目は `SceneRoot` が作ったもの。**
+    // 親から外すだけで、捨てるのは作った側（`AnimalSystem` の絵を共有している）
+    if (this.cameo?.object.parent) this.cameo.object.parent.remove(this.cameo.object);
+    this.cameo = null;
+    this.cameoSpot = null;
+    this.cameoFns.length = 0;
     disposeObject3D(this.frontGroup);
     this.callAt.length = 0;
     this.callFns.length = 0;
