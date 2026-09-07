@@ -172,7 +172,7 @@ const PALETTES: Record<SpotKind, Palette> = {
   // 砂岩の色まで寄せると、背景画との彩度差が
   // -30.6/-27.6/-25.6/-24.1/-23.8 → -18.1/-14.4/-12.2/-11.9/-11.9 になり、
   // どうぶつえん と きょうりゅう は基準（|ΔC*| ≤ 12）に入った
-  rock: { body: 0x97815f, cover: 0xbaa47b, accent: 0x6a5940 },
+  rock: { body: 0x9c8358, cover: 0xc1a874, accent: 0x6e5b3c },
   water: { body: 0x2f6f96, cover: 0x4a97bf, accent: 0x9fd8ea },
   blanket: { body: 0xdfe6ef, cover: 0x4f83cc, accent: 0x3f6091 },
   hollow: { body: 0x74492a, cover: 0x986a3c, accent: 0x432c18 },
