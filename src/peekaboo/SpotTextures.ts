@@ -30,6 +30,29 @@ import type { SpotKind } from '../types';
 /** 生成するテクスチャの一辺。模様は繰り返して貼るので大きくしなくてよい */
 const SIZE = 256;
 
+/**
+ * 下地の明るさ。
+ *
+ * ==========================================================================
+ * **白から描き始めない**（2026-09-07 に実測して直した）。
+ * 白の上に白を重ねても何も変わらないので、模様が「暗くする側」しか効かず、
+ * 板ごとの明暗を ±5% 振っているつもりが実際は −5%〜0% しか出ていなかった。
+ * はこ の内部の L\* の四分位範囲が 3.59 から動かなかった原因がこれ。
+ *
+ * 中間の灰から描くと、明るくする側も効いて幅が倍になる。
+ * 全体が暗くなるぶんは `mean` を測って呼ぶ側が打ち消すので、
+ * 下地を暗くしても場面は暗くならない。
+ * ==========================================================================
+ */
+const BASE = '#c6c6c6';
+
+/** 符号つきの重ね塗り。`+` で明るく、`-` で暗く */
+function tone(amount: number): string {
+  return amount >= 0
+    ? `rgba(255,255,255,${amount.toFixed(3)})`
+    : `rgba(0,0,0,${(-amount).toFixed(3)})`;
+}
+
 export interface SurfaceTexture {
   texture: THREE.Texture;
   /**
@@ -111,18 +134,23 @@ type Painter = (ctx: CanvasRenderingContext2D, rng: () => number) => void;
 /** 板を横に張った箱。**継ぎ目を強く**（ここが L\* の幅をいちばん作る） */
 const plank: Painter = (ctx, rng) => {
   const rows = 4;
+  const h = SIZE / rows;
   for (let i = 0; i < rows; i++) {
-    const y0 = (i * SIZE) / rows;
+    const y0 = i * h;
     // 板ごとに明るさを変える。同じ板が並ぶと「壁紙」に見える
-    const tone = 0.94 + rng() * 0.1;
-    ctx.fillStyle = `rgba(255,255,255,0)`;
-    ctx.fillRect(0, y0, SIZE, SIZE / rows);
-    ctx.fillStyle = tone < 1 ? `rgba(0,0,0,${(1 - tone).toFixed(3)})` : `rgba(255,255,255,${(tone - 1).toFixed(3)})`;
-    ctx.fillRect(0, y0, SIZE, SIZE / rows);
+    ctx.fillStyle = tone((rng() * 2 - 1) * 0.17);
+    ctx.fillRect(0, y0, SIZE, h);
+    // 板1枚の中の丸み。上が明るく、下が暗い。**ここが明暗の幅をいちばん作る**
+    const round = ctx.createLinearGradient(0, y0, 0, y0 + h);
+    round.addColorStop(0, 'rgba(255,255,255,0.20)');
+    round.addColorStop(0.42, 'rgba(255,255,255,0.05)');
+    round.addColorStop(1, 'rgba(0,0,0,0.22)');
+    ctx.fillStyle = round;
+    ctx.fillRect(0, y0, SIZE, h);
     // 継ぎ目
-    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.fillStyle = 'rgba(0,0,0,0.44)';
     ctx.fillRect(0, y0 - 1.5, SIZE, 3);
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillStyle = 'rgba(255,255,255,0.30)';
     ctx.fillRect(0, y0 + 1.5, SIZE, 2);
   }
   // 板目
@@ -141,9 +169,14 @@ const plank: Painter = (ctx, rng) => {
 const wood: Painter = (ctx, rng) => {
   for (let i = 0; i < 7; i++) {
     const x = (i * SIZE) / 7 + rng() * 6;
-    const tone = 0.93 + rng() * 0.12;
-    ctx.fillStyle =
-      tone < 1 ? `rgba(0,0,0,${(1 - tone).toFixed(3)})` : `rgba(255,255,255,${(tone - 1).toFixed(3)})`;
+    ctx.fillStyle = tone((rng() * 2 - 1) * 0.19);
+    ctx.fillRect(x, 0, SIZE / 7, SIZE);
+    // 板1枚の中の丸み（縦の板なので左右に振る）
+    const round = ctx.createLinearGradient(x, 0, x + SIZE / 7, 0);
+    round.addColorStop(0, 'rgba(0,0,0,0.16)');
+    round.addColorStop(0.4, 'rgba(255,255,255,0.18)');
+    round.addColorStop(1, 'rgba(0,0,0,0.16)');
+    ctx.fillStyle = round;
     ctx.fillRect(x, 0, SIZE / 7, SIZE);
     streak(ctx, x, 2.5, 'rgba(0,0,0,0.26)', 2, rng);
   }
@@ -171,9 +204,9 @@ const fabric: Painter = (ctx, rng) => {
     const x = (i * SIZE) / folds;
     const w = SIZE / folds;
     const g = ctx.createLinearGradient(x, 0, x + w, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0.22)');
-    g.addColorStop(0.45, 'rgba(255,255,255,0.16)');
-    g.addColorStop(1, 'rgba(0,0,0,0.22)');
+    g.addColorStop(0, 'rgba(0,0,0,0.30)');
+    g.addColorStop(0.45, 'rgba(255,255,255,0.34)');
+    g.addColorStop(1, 'rgba(0,0,0,0.30)');
     ctx.fillStyle = g;
     for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x + dx, 0, w, SIZE);
   }
@@ -198,7 +231,7 @@ const stone: Painter = (ctx, rng) => {
       rng() * SIZE,
       12 + rng() * 34,
       10 + rng() * 28,
-      dark ? `rgba(0,0,0,${(0.05 + rng() * 0.1).toFixed(3)})` : `rgba(255,255,255,${(0.05 + rng() * 0.1).toFixed(3)})`
+      dark ? `rgba(0,0,0,${(0.06 + rng() * 0.14).toFixed(3)})` : `rgba(255,255,255,${(0.06 + rng() * 0.16).toFixed(3)})`
     );
   }
   for (let i = 0; i < 220; i++) {
@@ -231,7 +264,7 @@ const foliage: Painter = (ctx, rng) => {
       rng() * SIZE,
       r,
       r * (0.5 + rng() * 0.6),
-      dark ? `rgba(0,0,0,${(0.07 + rng() * 0.14).toFixed(3)})` : `rgba(255,255,255,${(0.06 + rng() * 0.12).toFixed(3)})`
+      dark ? `rgba(0,0,0,${(0.08 + rng() * 0.16).toFixed(3)})` : `rgba(255,255,255,${(0.08 + rng() * 0.18).toFixed(3)})`
     );
   }
   // 葉脈のような細い線
@@ -242,13 +275,13 @@ const foliage: Painter = (ctx, rng) => {
 
 /** 水面。横に流れる波 */
 const water: Painter = (ctx, rng) => {
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 34; i++) {
     const y = rng() * SIZE;
-    const h = 3 + rng() * 12;
+    const h = 4 + rng() * 16;
     const g = ctx.createLinearGradient(0, y, 0, y + h);
     const light = rng() < 0.5;
     g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.5, light ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.16)');
+    g.addColorStop(0.5, light ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.30)');
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
     for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy, SIZE, h);
@@ -259,9 +292,9 @@ const water: Painter = (ctx, rng) => {
 const clay: Painter = (ctx, rng) => {
   for (let i = 0; i < 16; i++) {
     const y = (i * SIZE) / 16 + rng() * 3;
-    ctx.fillStyle = `rgba(0,0,0,${(0.05 + rng() * 0.06).toFixed(3)})`;
+    ctx.fillStyle = `rgba(0,0,0,${(0.08 + rng() * 0.09).toFixed(3)})`;
     for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy, SIZE, 2.5);
-    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
     for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy + 2.5, SIZE, 2);
   }
   for (let i = 0; i < 26; i++) {
@@ -306,7 +339,7 @@ export function createSurfaceTexture(kind: SpotKind, seed: number): SurfaceTextu
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
 
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = BASE;
   ctx.fillRect(0, 0, SIZE, SIZE);
   (PAINTERS[kind] ?? plank)(ctx, mulberry32(seed));
 

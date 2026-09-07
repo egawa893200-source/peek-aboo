@@ -52,7 +52,7 @@ export const FORM_SHADING = {
  * 隠れ場所は幅 1.70・高さ 1.35 なので、1.2 だと横に 1.4 回ぶん。
  * 小さくすると模様が細かくなり、遠目には無地に戻る。
  */
-export const SURFACE_TILE = 1.2;
+export const SURFACE_TILE = 0.85;
 
 /**
  * 落ち影（`Backdrop.createContactShadow`）。
