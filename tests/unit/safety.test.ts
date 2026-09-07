@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest';
 import { ANIMALS } from '../../src/data/animals';
 import { CUTOUT_SIZES } from '../../src/data/cutoutSizes';
 import type { SceneConfig } from '../../src/types';
+import { SpotShuffle, SWAP_CHANCE } from '../../src/peekaboo/SpotShuffle';
 import {
   Surprise,
   SURPRISE_CHANCE,
@@ -1366,6 +1367,122 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
         ).toBeLessThan(d);
       }
     }
+  });
+});
+
+describe('§6-2 同じ隠れ場所から別の動物が出る', () => {
+  /** モードAの場面を、入れ替えつき（`SpotShuffle`）で組む */
+  function shuffleRig(sceneId: string, chance: number, seed = 4242, useCutouts = false) {
+    const scene = findScene(sceneId);
+    const spots = new SpotSystem(scene.spots, scene.mode);
+    const animals = new AnimalSystem(spots, false, useCutouts ? fakeCutouts(scene) : new Map());
+    const shuffle = new SpotShuffle(spots, animals, { seed, chance });
+    const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
+    camera.position.set(0, 0.3, 7.2);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+    const advance = (seconds: number) => {
+      const frames = Math.round(seconds / DT);
+      for (let i = 0; i < frames; i++) {
+        spots.update(DT);
+        animals.update(DT, spots, camera);
+      }
+    };
+    /** いまどの場所に誰が居るか */
+    const layout = () =>
+      spots.runtimes.map((s) => animals.getSlot(s.config.id)?.config.id ?? null);
+    return { spots, animals, shuffle, camera, advance, layout };
+  }
+
+  /** 1周: 全部押して、出て、引っ込むまで */
+  function cycle(rig: ReturnType<typeof shuffleRig>): void {
+    for (const spot of rig.spots.runtimes) rig.spots.tap(spot);
+    rig.advance(3.2);
+  }
+
+  it('同じ隠れ場所から、2種類以上の動物が出る', () => {
+    const rig = shuffleRig('ouchi', 1.0);
+    const seen = rig.spots.runtimes.map(() => new Set<string>());
+
+    for (let i = 0; i < 12; i++) {
+      const now = rig.layout();
+      now.forEach((id, idx) => {
+        if (id) seen[idx].add(id);
+      });
+      cycle(rig);
+    }
+    rig.layout().forEach((id, idx) => {
+      if (id) seen[idx].add(id);
+    });
+
+    for (let i = 0; i < seen.length; i++) {
+      expect(
+        seen[i].size,
+        `${rig.spots.runtimes[i].config.id} から ${[...seen[i]].join('/')} しか出ていない`
+      ).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('**同時に同じ動物が2箇所に出ることはない**', () => {
+    // 入れ替え（交換）なので原理的に起きないが、実装が片側だけ書き換えると起きる。
+    // `reassign()` で「片方だけ直すと元の場所から生えてくる」を踏んでいるので見張る
+    const rig = shuffleRig('umi', 1.0);
+    for (let i = 0; i < 30; i++) {
+      const ids = rig.layout().filter((x): x is string => x !== null);
+      expect(new Set(ids).size, `${i} 周目に重複: ${ids.join('/')}`).toBe(ids.length);
+      cycle(rig);
+    }
+  });
+
+  it('入れ替えたあとも、隠れていれば縁から見えている（不変条件3）', () => {
+    // **絵を貼った動物は隠れ場所ごとに大きさが変わる**ので、
+    // 入れ替えたときに anchor() を通し忘れると、前の場所の大きさのまま残る
+    for (const useCutouts of [false, true]) {
+      const rig = shuffleRig('noujou', 1.0, 99, useCutouts);
+      for (let i = 0; i < 8; i++) cycle(rig);
+      rig.advance(0.5);
+      for (const spot of rig.spots.runtimes) {
+        const e = rig.animals.getExposure(spot);
+        expect(e, `${spot.config.id} に動物が居ない`).not.toBeNull();
+        expect(e!.fraction, `${spot.config.id}（絵=${useCutouts}）`).toBeGreaterThanOrEqual(0.15);
+        expect(e!.fraction, `${spot.config.id}（絵=${useCutouts}）`).toBeLessThanOrEqual(0.25);
+        const fit = rig.animals.getFit(spot)!;
+        expect(fit.mouthWidth, `${spot.config.id} が開口に収まらない`).toBeGreaterThanOrEqual(
+          fit.animalWidth * 0.86
+        );
+      }
+    }
+  });
+
+  it('4回に1回くらいしか入れ替えない（覚えた場所が毎回崩れない）', () => {
+    const rig = shuffleRig('soto', SWAP_CHANCE);
+    for (let i = 0; i < 40; i++) cycle(rig);
+    const rolled = rig.shuffle.getRolledCount();
+    const swapped = rig.animals.getSwapCount();
+    expect(rolled).toBeGreaterThan(50);
+    const rate = swapped / rolled;
+    expect(rate, `実測 ${(rate * 100).toFixed(1)}%`).toBeGreaterThan(0.15);
+    expect(rate, `実測 ${(rate * 100).toFixed(1)}%`).toBeLessThan(0.35);
+  });
+
+  it('出ている最中には入れ替わらない', () => {
+    const rig = shuffleRig('ouchi', 1.0);
+    for (const spot of rig.spots.runtimes) rig.spots.tap(spot);
+    rig.advance(0.6); // 出きったところ
+    const before = rig.layout();
+    const swapsBefore = rig.animals.getSwapCount();
+    rig.advance(0.8); // まだ出ている
+    expect(rig.animals.getSwapCount()).toBe(swapsBefore);
+    expect(rig.layout()).toEqual(before);
+  });
+
+  it('モードB（のはら）では入れ替えない', () => {
+    const scene = findScene('nohara');
+    expect(scene.mode).toBe('chase');
+    const { animals } = chaseRig();
+    // のはら は SceneRoot が SpotShuffle を作らない。走り手が動かしているので、
+    // ここが動かすと2つの書き手が取り合う
+    expect(animals.getSwapCount()).toBe(0);
   });
 });
 

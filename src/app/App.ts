@@ -224,6 +224,14 @@ export class App {
   createDebugApi() {
     return {
       getTapCount: (): number => this.taps,
+      /** §6-2。いまその隠れ場所に居る動物の id */
+      getAnimalAt: (spotId: string): string | null =>
+        this.sceneRoot?.animals.getSlot(spotId)?.config.id ?? null,
+      /** §6-2。抽選した回数と、実際に入れ替えた回数 */
+      getShuffle: (): { rolled: number; swapped: number } => ({
+        rolled: this.sceneRoot?.shuffle?.getRolledCount() ?? 0,
+        swapped: this.sceneRoot?.animals.getSwapCount() ?? 0,
+      }),
       /** §6-3 のサプライズ。抽選した回数と、実際に出した回数 */
       getSurprise: (): {
         rolled: number;

@@ -177,6 +177,7 @@ export class SpotSystem {
   private readonly emptyFns: SpotEvent[] = [];
   private readonly tapFns: SpotEvent[] = [];
   private readonly openFns: SpotEvent[] = [];
+  private readonly hiddenFns: SpotEvent[] = [];
 
   /** 応答を返したタップの総数。**タップ総数と必ず一致すること**（不変条件1） */
   private responses = 0;
@@ -261,6 +262,17 @@ export class SpotSystem {
    */
   onOpen(fn: SpotEvent): void {
     this.openFns.push(fn);
+  }
+
+  /**
+   * 隠れ終わった（`hiding` → `hidden`）。
+   *
+   * §6-2「同じ隠れ場所から別の動物が出る」を、ここで差し替える。
+   * **出ている最中や引っ込む途中に入れ替えないこと。** 目の前で動物が
+   * すり替わる。隠れ終わってからなら、次に開けたときに気づく
+   */
+  onHidden(fn: SpotEvent): void {
+    this.hiddenFns.push(fn);
   }
 
   find(id: string): SpotRuntime | null {
@@ -373,6 +385,7 @@ export class SpotSystem {
         if (s.reveal <= 0) {
           s.reveal = 0;
           s.state = 'hidden';
+          this.emit(this.hiddenFns, s);
         }
         break;
       }
@@ -544,6 +557,7 @@ export class SpotSystem {
     this.emptyFns.length = 0;
     this.tapFns.length = 0;
     this.openFns.length = 0;
+    this.hiddenFns.length = 0;
     this.group.removeFromParent();
   }
 

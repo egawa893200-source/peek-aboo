@@ -161,6 +161,8 @@ export class AnimalSystem {
   private readonly slots = new Map<string, AnimalSlot>();
   /** 光った回数。E2E と単体テストから数える（不変条件6） */
   private flashes = 0;
+  /** 入れ替えた回数（§6-2）。テストが見る */
+  private swaps = 0;
   /** 前回光った時刻。`Loop` の固定 dt を積むので、テストで正確に再現できる */
   private lastFlashAt = Number.NEGATIVE_INFINITY;
   private clock = 0;
@@ -244,6 +246,42 @@ export class AnimalSystem {
     to.group.add(slot.built.group);
     this.anchor(slot, to);
     return slot;
+  }
+
+  /**
+   * 2箇所の動物を入れ替える（§6-2 / 2026-09-06）。
+   *
+   * **どちらも隠れ終わっていること。** 出ている最中に入れ替えると
+   * 目の前ですり替わる。呼ぶ側（`SceneRoot`）が確かめる。
+   *
+   * `slots` のキーと three の親子関係の**両方**を移す。
+   * `reassign()` と同じ理由で、片方だけ直すと次に出るとき元の場所から生える。
+   * 入れ替えたあとは必ず `anchor()` を通す。**絵を貼った動物は
+   * 隠れ場所ごとに大きさが変わる**ので、通さないと前の場所の大きさのままになる。
+   */
+  swap(a: SpotRuntime, b: SpotRuntime): boolean {
+    if (a === b) return false;
+    const slotA = this.slots.get(a.config.id);
+    const slotB = this.slots.get(b.config.id);
+    if (!slotA || !slotB) return false;
+
+    this.slots.set(a.config.id, slotB);
+    this.slots.set(b.config.id, slotA);
+    slotA.spotIdMutable = b.config.id;
+    slotB.spotIdMutable = a.config.id;
+    b.group.add(slotA.built.group);
+    a.group.add(slotB.built.group);
+    this.anchor(slotA, b);
+    this.anchor(slotB, a);
+    // 入れ替えた直後は隠れている。次に開けたときに気づく
+    slotA.built.group.position.y = slotA.hiddenY;
+    slotB.built.group.position.y = slotB.hiddenY;
+    this.swaps++;
+    return true;
+  }
+
+  getSwapCount(): number {
+    return this.swaps;
   }
 
   /** 隠れ場所に合わせて、隠れる高さ・出きる高さ・ヒントの奥行きを決め直す */

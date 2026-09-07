@@ -19,6 +19,7 @@ import { AnimalSystem } from '../peekaboo/AnimalSystem';
 import { ChaseSystem } from '../peekaboo/ChaseSystem';
 import { EmptySpot } from '../peekaboo/EmptySpot';
 import { disposeObject3D } from '../peekaboo/SpotShapes';
+import { SpotShuffle } from '../peekaboo/SpotShuffle';
 import { SpotSystem } from '../peekaboo/SpotSystem';
 import { createBackdropTexture, createContactShadow, createShadowTexture } from './Backdrop';
 import type { SceneConfig } from '../types';
@@ -29,6 +30,8 @@ export class SceneRoot {
   readonly animals: AnimalSystem;
   /** モードB（§4-5）のときだけ。モードAでは null */
   readonly chase: ChaseSystem | null;
+  /** §6-2。モードAのときだけ。モードBでは null */
+  readonly shuffle: SpotShuffle | null;
   /** §4-6。モードAでも空の場所は起きないが、**外さない**（不変条件3b の保険） */
   readonly empty: EmptySpot;
 
@@ -58,6 +61,7 @@ export class SceneRoot {
     spots: SpotSystem,
     animals: AnimalSystem,
     chase: ChaseSystem | null,
+    shuffle: SpotShuffle | null,
     empty: EmptySpot,
     floor: THREE.Mesh,
     backdrop: THREE.Texture | null,
@@ -72,6 +76,7 @@ export class SceneRoot {
     this.spots = spots;
     this.animals = animals;
     this.chase = chase;
+    this.shuffle = shuffle;
     this.empty = empty;
     this.floor = floor;
     this.group.add(floor);
@@ -171,10 +176,20 @@ export class SceneRoot {
 
     // §4-6。**モードAでも繋いでおく。** 場面のデータを間違えて
     // 動物の居ない隠れ場所を作ってしまっても、無反応にはならない（不変条件3b）
+    // §6-2「同じ隠れ場所から別の動物が出る」。
+    // **モードAだけ。** モードBは走り手が移動しているので、ここが動かすと
+    // 2つの書き手が同じものを取り合う（§4-5 の `driven` と同じ話）
+    const shuffle =
+      config.mode === 'hideout'
+        ? new SpotShuffle(spots, animals, {
+            ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed ^ 0x5bd1e995 } : {}),
+          })
+        : null;
+
     const empty = new EmptySpot(spots);
     spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
 
-    return new SceneRoot(config, spots, animals, chase, empty, floor, backdrop, shadowTexture, shadows, cutouts);
+    return new SceneRoot(config, spots, animals, chase, shuffle, empty, floor, backdrop, shadowTexture, shadows, cutouts);
   }
 
   /**
