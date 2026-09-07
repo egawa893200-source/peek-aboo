@@ -203,10 +203,15 @@ const fabric: Painter = (ctx, rng) => {
   for (let i = 0; i < folds; i++) {
     const x = (i * SIZE) / folds;
     const w = SIZE / folds;
+    // **山と谷を等間隔の硬い縞にしないこと。**
+    // 判定で「布のはずが等間隔の硬いリブになり、トタン板に見える」と
+    // 言われた。谷を柔らかく、幅も襞ごとに変える
     const g = ctx.createLinearGradient(x, 0, x + w, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0.30)');
-    g.addColorStop(0.45, 'rgba(255,255,255,0.34)');
-    g.addColorStop(1, 'rgba(0,0,0,0.30)');
+    g.addColorStop(0, 'rgba(0,0,0,0.20)');
+    g.addColorStop(0.18, 'rgba(0,0,0,0.06)');
+    g.addColorStop(0.44 + rng() * 0.14, 'rgba(255,255,255,0.30)');
+    g.addColorStop(0.82, 'rgba(0,0,0,0.06)');
+    g.addColorStop(1, 'rgba(0,0,0,0.20)');
     ctx.fillStyle = g;
     for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x + dx, 0, w, SIZE);
   }
@@ -223,14 +228,18 @@ const fabric: Painter = (ctx, rng) => {
 
 /** 石。まだらと、ひび */
 const stone: Painter = (ctx, rng) => {
-  for (let i = 0; i < 40; i++) {
+  // **こぶ大の斑点にしないこと。** 板に平面投影しているので、模様は
+  // 球の継ぎ目をまたいで直進する。大きい斑点だと
+  // 「迷彩柄を印刷した板」に見える（判定の指摘）。細かい粒にすると
+  // 石の目に見えて、投影のゆがみも目立たない
+  for (let i = 0; i < 46; i++) {
     const dark = rng() < 0.5;
     blob(
       ctx,
       rng() * SIZE,
       rng() * SIZE,
-      12 + rng() * 34,
-      10 + rng() * 28,
+      5 + rng() * 14,
+      4 + rng() * 12,
       dark ? `rgba(0,0,0,${(0.06 + rng() * 0.14).toFixed(3)})` : `rgba(255,255,255,${(0.06 + rng() * 0.16).toFixed(3)})`
     );
   }
@@ -275,16 +284,46 @@ const foliage: Painter = (ctx, rng) => {
 
 /** 水面。横に流れる波 */
 const water: Painter = (ctx, rng) => {
-  for (let i = 0; i < 34; i++) {
-    const y = rng() * SIZE;
-    const h = 4 + rng() * 16;
-    const g = ctx.createLinearGradient(0, y, 0, y + h);
-    const light = rng() < 0.5;
+  // **横に流れる波だけでは板のまま。**
+  // 判定の実測: 幅 180px のあいだ平均 rgb が 2/255 しか動かず
+  // 「濃い青の板」に見えていた。斜めに差す光の筋を入れて、
+  // 横方向にも明暗を作る
+  for (let i = 0; i < 7; i++) {
+    const x = rng() * SIZE;
+    const w = 14 + rng() * 30;
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
     g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.5, light ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.30)');
+    g.addColorStop(0.5, `rgba(255,255,255,${(0.22 + rng() * 0.22).toFixed(3)})`);
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
-    for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy, SIZE, h);
+    for (const dx of [-SIZE, 0, SIZE]) {
+      ctx.save();
+      ctx.translate(dx, 0);
+      ctx.transform(1, 0, -0.22, 1, 0, 0);
+      ctx.fillRect(x - 40, -SIZE, w, SIZE * 3);
+      ctx.restore();
+    }
+  }
+  // 波。うねらせる（まっすぐな帯は「縞の印刷」に見える）
+  for (let i = 0; i < 30; i++) {
+    const y = rng() * SIZE;
+    const h = 3 + rng() * 10;
+    const light = rng() < 0.5;
+    ctx.strokeStyle = light
+      ? `rgba(255,255,255,${(0.16 + rng() * 0.2).toFixed(3)})`
+      : `rgba(0,0,0,${(0.12 + rng() * 0.16).toFixed(3)})`;
+    ctx.lineWidth = h;
+    const amp = 3 + rng() * 7;
+    const phase = rng() * Math.PI * 2;
+    for (const dy of [-SIZE, 0, SIZE]) {
+      ctx.beginPath();
+      for (let x = 0; x <= SIZE; x += 8) {
+        const py = y + dy + Math.sin(phase + (x / SIZE) * Math.PI * 2) * amp;
+        if (x === 0) ctx.moveTo(x, py);
+        else ctx.lineTo(x, py);
+      }
+      ctx.stroke();
+    }
   }
 };
 
@@ -297,8 +336,18 @@ const clay: Painter = (ctx, rng) => {
     ctx.fillStyle = 'rgba(255,255,255,0.14)';
     for (const dy of [-SIZE, 0, SIZE]) ctx.fillRect(0, y + dy + 2.5, SIZE, 2);
   }
-  for (let i = 0; i < 26; i++) {
-    blob(ctx, rng() * SIZE, rng() * SIZE, 14 + rng() * 30, 10 + rng() * 20, `rgba(0,0,0,${(0.04 + rng() * 0.07).toFixed(3)})`);
+  // **斑点を置かない**（2026-09-07）。石・葉・殻と同じ楕円の斑点が
+  // 全部の隠れ場所に乗って「どれも同じ汚れた板」に見えると判定で言われた。
+  // 素焼きは焼きむらなので、輪郭のぼやけた縦の帯にする
+  for (let i = 0; i < 9; i++) {
+    const x = rng() * SIZE;
+    const w = 20 + rng() * 46;
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.5, `rgba(0,0,0,${(0.05 + rng() * 0.06).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    for (const dx of [-SIZE, 0, SIZE]) ctx.fillRect(x + dx, 0, w, SIZE);
   }
 };
 

@@ -829,16 +829,14 @@ function createRock(p: Palette, spotY: number): SpotShape {
     // 局所 x = ±0.78 まで覆える。
     // **高さは詰めないこと。** H×0.95 にしたら、絵を貼った うみ の いわ で
     // 左右の縁の 5点（15×15 の格子）から体が覗いた（実測）
-    const slab = plate(
-      `rock.slab.${side < 0 ? 'l' : 'r'}`,
-      W * 0.78,
-      H * 1.1,
-      0.12,
-      stone,
-      -side * 0.16,
-      -H * 0.26,
-      FRONT_Z - 0.05
-    );
+    // **四角い板にしないこと**（2026-09-07）。球より奥（z=0.17）にあるので、
+    // はみ出した角がそのまま空を背に長方形として見える。
+    // 楕円にすると、丸い塊の裏に収まる（塞ぐ場所は中央なので、
+    // 角を落としても隙間はできない ——  遮蔽のテストが見張っている）
+    const slab = new THREE.Mesh(new THREE.CircleGeometry(0.5, 28), stone);
+    slab.name = `rock.slab.${side < 0 ? 'l' : 'r'}`;
+    slab.scale.set(W * 0.78, H * 1.1, 1);
+    slab.position.set(-side * 0.16, -H * 0.26, FRONT_Z - 0.05);
     half.add(slab);
 
     half.position.x = (side * W) / 4 - side * 0.15;
