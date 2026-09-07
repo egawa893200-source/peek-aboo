@@ -62,7 +62,7 @@ const OUCHI: SceneConfig = {
   // おうち。夕方の部屋。暖かい茶
   sky: ["#6a5240", "#22150f"],
   // おうち。ふとんや箱が **もぞもぞ動いてから**開く（ため の 0.15秒）
-  flavor: { wobble: true },
+  flavor: { wobble: true, shadowPeek: true },
   label: "おうち",
   mode: "hideout",
   // 素材はまだ1つも無い。null なら手続き生成に落ちる（不変条件7）

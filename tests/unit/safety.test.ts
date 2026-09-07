@@ -57,6 +57,7 @@ import {
   maxSpotTiltRad,
   PROP_COUNT,
   QUAKE_SEC,
+  SHADOW_EVERY_SEC,
   WATER_AMP2_RAD,
   WATER_AMP_RAD,
   WIND_AMP_RAD,
@@ -1926,6 +1927,47 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
     flavor.dispose();
   });
 
+  it('影は、隠れているあいだしか出ない（出てきた動物にかぶらない）', () => {
+    // ==========================================================================
+    // **影だけは隠れ場所の手前に置く。** ふたに映る影なので、奥だと見えない。
+    // 手前に置いてよい理由は位置ではなく**時間**で、
+    // 「隠れているあいだしか出さない」がその保証そのもの。ここで見張る。
+    // ==========================================================================
+    const { spots } = sceneRig('ouchi');
+    const flavor = new Flavor(spots.runtimes, { shadowPeek: true }, { seed: 6 });
+
+    let sawShadow = false;
+    let badFrames = 0;
+    for (let f = 0; f < Math.round(60 * SHADOW_EVERY_SEC * 4); f++) {
+      // ときどき押して、出ている最中を必ず通す
+      if (f % 240 === 0) spots.tap(spots.runtimes[f % spots.runtimes.length]);
+      spots.update(DT);
+      flavor.update(DT);
+
+      const id = flavor.getShadowSpotId();
+      if (!id) continue;
+      sawShadow = true;
+      const spot = spots.runtimes.find((s) => s.config.id === id);
+      // 影が出ているのに、その場所が隠れていない＝動物にかぶっている
+      if (!spot || spot.state !== 'hidden') badFrames++;
+    }
+    expect(sawShadow).toBe(true);
+    expect(flavor.getShadowCount()).toBeGreaterThanOrEqual(1);
+    expect(badFrames).toBe(0);
+    flavor.dispose();
+  });
+
+  it('影は、誰が居るかまでは分からない形にする', () => {
+    // 輪郭で当てられると、開ける前に答えが出てしまって「ばあ」にならない。
+    // 丸ふたつだけ（頭と体）であることを、部品の数で見る
+    const { spots } = sceneRig('ouchi');
+    const flavor = new Flavor(spots.runtimes, { shadowPeek: true }, { seed: 6 });
+    expect(flavor.frontGroup.children).toHaveLength(1);
+    expect(flavor.frontGroup.children[0].children).toHaveLength(2);
+    flavor.dispose();
+    expect(flavor.frontGroup.children).toHaveLength(0);
+  });
+
   it('味つけを足しても、出きった動物はカメラから見えている（2026-09-06 の再発防止）', () => {
     // 花・卵・あぶく・足あとを、動物の手前に置いてしまうと、
     // 「ねことうしの隠れ場所が開いた時に画像と被って見えなくなっている」が再発する
@@ -1939,6 +1981,74 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
         expect(e, `${id}/${spot.config.id}`).not.toBeNull();
       }
     }
+  });
+});
+
+describe('§6-2 出かたの癖（`AnimalConfig.style`）', () => {
+  it('癖は 25体ぶん指定してあり、種類が2つ以上ある', () => {
+    // **書いてあるのに誰も読んでいない状態が長く続いた**（2026-09-07 まで）。
+    // どの動物も同じ出かたをしていたのが「味つけが弱い」の一因
+    const styles = new Set(ANIMALS.map((a) => a.style));
+    expect(styles.size).toBeGreaterThanOrEqual(3);
+    for (const a of ANIMALS) expect(a.style, a.id).toBeTruthy();
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 癖があっても、隠れているときの位置は同じ', (id) => {
+    // **癖は両端で何も足さない。** ここが崩れると、不変条件3 のはみ出し量が
+    // 動物ごとに変わって、隠れているのに体が見える回ができる
+    const { spots, animals, advance } = sceneRig(id);
+    advance(0.5);
+    for (const spot of spots.runtimes) {
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+      expect(slot.built.group.position.x, `${id}/${spot.config.id}`).toBeCloseTo(0, 10);
+      expect(slot.built.group.rotation.z, `${id}/${spot.config.id}`).toBeCloseTo(0, 10);
+      expect(slot.built.group.position.y, `${id}/${spot.config.id}`).toBeCloseTo(slot.hiddenY, 10);
+    }
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 癖があっても、出きったときの位置は同じ', (id) => {
+    const { spots, animals, advance } = sceneRig(id);
+    advance(0.5);
+    for (const spot of spots.runtimes) spots.tap(spot);
+    advance(PEAK_AT_SEC + 0.3);
+    for (const spot of spots.runtimes) {
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+      expect(spot.reveal, `${id}/${spot.config.id}`).toBe(1);
+      expect(slot.built.group.position.x, `${id}/${spot.config.id}`).toBeCloseTo(0, 10);
+      expect(slot.built.group.rotation.z, `${id}/${spot.config.id}`).toBeCloseTo(0, 10);
+      expect(slot.built.group.position.y, `${id}/${spot.config.id}`).toBeCloseTo(slot.outY, 10);
+    }
+  });
+
+  it('癖が違えば、出ている途中の見え方が実際に違う', () => {
+    // 「読んでいない」に戻ったことを捕まえる。**途中が同じなら癖は死んでいる**
+    const { spots, animals, advance } = sceneRig('dobutsuen');
+    advance(0.5);
+    for (const spot of spots.runtimes) spots.tap(spot);
+    // 山の手前、いちばん差が出るあたりで見る
+    advance(APPEAR_DELAY_SEC + 0.18);
+
+    const shape = spots.runtimes.map((spot) => {
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) return null;
+      const span = slot.outY - slot.hiddenY;
+      return {
+        id: slot.config.id,
+        style: slot.config.style,
+        // 「どれだけ出ているか」を 0..1 に直す。癖が効いていれば値が割れる
+        lift: (slot.built.group.position.y - slot.hiddenY) / span,
+      };
+    });
+    const lifts = shape.filter((v) => v !== null).map((v) => v!.lift);
+    expect(lifts.length).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...lifts) - Math.min(...lifts)).toBeGreaterThan(0.05);
+
+    // きりん（peek）は「顔だけ先に、ゆっくり」なので、いちばん出ていない
+    const kirin = shape.find((v) => v?.id === 'kirin');
+    expect(kirin?.style).toBe('peek');
+    expect(kirin!.lift).toBe(Math.min(...lifts));
   });
 });
 

@@ -18,7 +18,7 @@
 import * as THREE from 'three';
 
 import { findAnimal } from '../data/animals';
-import type { AnimalConfig } from '../types';
+import type { AnimalConfig, AnimalStyle } from '../types';
 import { createCutoutAnimal } from './CutoutAnimal';
 import { createProceduralAnimal, HINT_EXPOSURE, type ProceduralAnimal } from './ProceduralAnimals';
 import type { SpotRuntime, SpotSystem } from './SpotSystem';
@@ -350,12 +350,21 @@ export class AnimalSystem {
       const { built } = slot;
       const reveal = spot.reveal;
 
-      // --- 高さ。ease-out で、出はじめを速く、止まりぎわを緩く ---------------
+      // --- 高さ。出かたの癖（§6-2 の `AnimalConfig.style`）で変わる ----------
       // **`driven` のあいだは触らない。** §4-5 の移動中は `ChaseSystem` が
       // ワールド座標で書いているので、ここで上書きすると跳ねが潰れる
       if (!slot.driven) {
-        const lift = easeOutCubic(reveal);
+        const lift = liftCurve(slot.config.style, reveal);
         built.group.position.y = slot.hiddenY + (slot.outY - slot.hiddenY) * lift;
+        // 横のずれと傾き。**両端で必ず 0 に戻る**ので、
+        // 隠れているとき（reveal = 0）と出きったとき（reveal = 1）の
+        // 見え方は癖を入れる前とまったく同じ（不変条件3 と 2026-09-06 の再発防止）
+        // 画面の外側へ逃がす向き。左の隠れ場所は左へ、右は右へ。
+        // 内側へ振ると、隣の隠れ場所に重なって見える
+        const side = spot.worldPosition.x < 0 ? -1 : 1;
+        const arc = Math.sin(Math.PI * reveal);
+        built.group.position.x = arc * styleShiftX(slot.config.style) * side;
+        built.group.rotation.z = arc * styleTilt(slot.config.style) * side;
       }
 
       // --- 大きさ。§4-4 のオーバーシュート -----------------------------------
@@ -477,6 +486,53 @@ export class AnimalSystem {
 
 /** ヒントが縁から出る量の設計値（§4-2 は体長の 15〜25%）。テストが参照する */
 export const EXPECTED_HINT_EXPOSURE = HINT_EXPOSURE;
+
+/* --- 出かたの癖（§6-2 の `AnimalConfig.style`）--------------------------- */
+
+/**
+ * ==========================================================================
+ * **25体ぶん書いてあるのに、誰も読んでいなかった**（2026-09-07 まで）。
+ * 「味つけが弱い」の一因がこれで、どの動物もまったく同じ出かたをしていた。
+ *
+ * 癖は**位置と傾きのカーブだけ**を変える。速さ（`reveal` の進みかた）は
+ * 触らない。§4-3 の山（0.50s）と §4-5 の1周（4.80s）は `reveal` で
+ * 決まっているので、そこに手を入れると表からずれる。
+ *
+ * **どの癖も、reveal が 0 と 1 のときには何も足さない。**
+ * だから「隠れているあいだ体は覗けない」（不変条件3）も
+ * 「出きったとき体が見えている」（2026-09-06 の再発防止）も、
+ * 癖を入れる前とまったく同じ判定になる。テストがそれを見張る。
+ * ==========================================================================
+ */
+
+/** 出かたの高さのカーブ。0→0、1→1 は**どの癖でも必ず守る** */
+function liftCurve(style: AnimalStyle, reveal: number): number {
+  if (style === 'peek') {
+    // **顔だけ先に、ゆっくり。** きりん・ぞうの「首や鼻が先に伸びてくる」。
+    // 前半で 45% まで出て、そこから一気に立ち上がる
+    return reveal < 0.55 ? easeOutCubic(reveal / 0.55) * 0.45 : 0.45 + easeOutCubic((reveal - 0.55) / 0.45) * 0.55;
+  }
+  if (style === 'flip') {
+    // 勢いよく行き過ぎてから戻る。**1 を越えない**（越えると縁から飛び出す）
+    return Math.min(1, easeOutCubic(reveal) * 1.12 - 0.12 * Math.sin(Math.PI * reveal));
+  }
+  return easeOutCubic(reveal);
+}
+
+/** 出るときの横のずれ[ワールド]。**両端で 0**（`sin` を掛けて使う） */
+function styleShiftX(style: AnimalStyle): number {
+  if (style === 'slide') return 0.3;
+  if (style === 'flip') return 0.12;
+  return 0;
+}
+
+/** 出るときの傾き[rad]。**両端で 0**（同上） */
+function styleTilt(style: AnimalStyle): number {
+  if (style === 'slide') return 0.22;
+  if (style === 'flip') return 0.5;
+  if (style === 'spin') return 0.75;
+  return 0;
+}
 
 /**
  * `prefers-reduced-motion`。

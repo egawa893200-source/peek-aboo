@@ -181,6 +181,26 @@ const FOOTPRINT_Z = -0.5;
  */
 const FOOTPRINT_Y = -2.6;
 
+/* --- 影が先に映る（おうち）------------------------------------------------ */
+
+/** 影が出る間隔。**押していないのに動くものは、間隔を空ける** */
+export const SHADOW_EVERY_SEC = 9;
+/** 出てから消えるまで */
+export const SHADOW_SEC = 2.0;
+/** いちばん濃いときの濃さ。**濃くしすぎると「もう出ている」と読まれる** */
+const SHADOW_OPACITY = 0.34;
+/**
+ * 隠れ場所の**手前**に置く z（隠れ場所のローカル座標）。
+ *
+ * ここだけは奥ではなく手前。ふたに映る影なので、奥に置くと見えない。
+ * **`frontGroup` に入れる。** 常設の飾り（`group`）は「必ず奥」を
+ * 位置で保証しているので、その保証を薄めないよう入れ物を分けてある。
+ * 手前に置いてよい理由は位置ではなく**時間**:
+ * 隠れているあいだしか出さないので、動物にかぶりようがない
+ * （テスト「影は、隠れているあいだしか出ない」が見張る）。
+ */
+const SHADOW_Z = 0.34;
+
 /* --- 残るもの（花・卵）---------------------------------------------------- */
 
 /** 引っ込んだあと残る割合。**毎回残すと「置き物」になって気づかれない** */
@@ -282,6 +302,17 @@ export class Flavor {
   /** ゆれる飾り（草・かいそう）。**隠れ場所より奥**（`PROP_Z`） */
   private props: THREE.Object3D[] = [];
 
+  /**
+   * 隠れ場所の**手前**に出すもの（いまは影だけ）。
+   * `group`（必ず奥）と分けてある。理由は `SHADOW_Z` の説明を読むこと
+   */
+  readonly frontGroup = new THREE.Group();
+  private shadow: THREE.Object3D | null = null;
+  private shadowSpot: SpotRuntime | null = null;
+  private shadowWait = SHADOW_EVERY_SEC * 0.7;
+  private shadowT = 0;
+  private shadows = 0;
+
   /** 横切るもの。1匹ぶんの見た目と、いま渡っているかどうか */
   private crossing: THREE.Object3D | null = null;
   /** この回でとまる隠れ場所。null なら素通り */
@@ -328,6 +359,11 @@ export class Flavor {
       this.props = this.buildProps(this.flavor.sway);
       for (const p of this.props) this.group.add(p);
     }
+    if (this.flavor.shadowPeek) {
+      this.shadow = this.buildShadow();
+      this.shadow.visible = false;
+      this.frontGroup.add(this.shadow);
+    }
     if (this.flavor.bubbles) this.bubbles = this.buildBubbles();
     for (const b of this.bubbles) this.group.add(b.mesh);
     if (this.flavor.crossing) this.crossing = this.buildCrossing(this.flavor.crossing);
@@ -358,6 +394,7 @@ export class Flavor {
     this.updateChorus(dt);
     this.updateFootprints(dt);
     this.updateLeftovers(dt);
+    this.updateShadow(dt);
   }
 
   /** 遷移を拾って、足音と地ひびきを仕込む */
@@ -671,6 +708,92 @@ export class Flavor {
       left.group.scale.setScalar(Math.max(0.001, u * pop));
       left.group.rotation.z = Math.sin(this.clock * 0.8 + left.group.position.x) * 0.06 * this.depth;
     }
+  }
+
+  /* --- 影が先に映る（おうち）---------------------------------------------- */
+
+  /**
+   * 隠れているあいだ、ときどき影だけが映る。
+   *
+   * **誰が居るかは分からない形にする。** 輪郭で当てられると、
+   * 開ける前に答えが出てしまって「ばあ」にならない。
+   * 頭と体の丸ふたつだけの、生き物とだけ分かる影。
+   */
+  private updateShadow(dt: number): void {
+    const shadow = this.shadow;
+    if (!shadow) return;
+
+    // 出ている最中。**隠れていない場所からは即座に消す**
+    if (this.shadowSpot) {
+      if (this.shadowSpot.state !== 'hidden') {
+        shadow.visible = false;
+        this.shadowSpot = null;
+        return;
+      }
+      this.shadowT += dt;
+      const u = this.shadowT / SHADOW_SEC;
+      if (u >= 1) {
+        shadow.visible = false;
+        this.shadowSpot = null;
+        this.shadowWait = SHADOW_EVERY_SEC;
+        return;
+      }
+      // ふわっと出て、ふわっと消える
+      const fade = Math.sin(u * Math.PI);
+      for (const child of shadow.children) {
+        const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+        mat.opacity = fade * SHADOW_OPACITY * this.depth;
+      }
+      // 中でゆっくり動いている感じ。**速く動かさない**（明滅に見える）
+      shadow.position.x = this.shadowSpot.worldPosition.x + Math.sin(this.clock * 1.1) * 0.12;
+      return;
+    }
+
+    this.shadowWait -= dt;
+    if (this.shadowWait > 0) return;
+
+    // 隠れている場所からひとつ選ぶ。**1つも無ければ待つ**（積み直さない）
+    const hidden = this.spots.filter((s) => s.state === 'hidden' && s.occupied);
+    if (hidden.length === 0) return;
+    const spot = hidden[Math.floor(this.rng() * hidden.length) % hidden.length];
+    this.shadowSpot = spot;
+    this.shadowT = 0;
+    this.shadows++;
+    shadow.visible = true;
+    shadow.position.set(spot.worldPosition.x, spot.worldPosition.y - 0.1, spot.worldPosition.z + SHADOW_Z);
+  }
+
+  /** 影。頭と体の丸ふたつだけ。**誰かは分からない** */
+  private buildShadow(): THREE.Object3D {
+    const group = new THREE.Group();
+    for (const [r, y] of [
+      [0.34, -0.12],
+      [0.2, 0.28],
+    ] as const) {
+      const mesh = new THREE.Mesh(
+        new THREE.CircleGeometry(r, 16),
+        new THREE.MeshBasicMaterial({
+          color: 0x0a0d14,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          toneMapped: false,
+        })
+      );
+      mesh.position.y = y;
+      group.add(mesh);
+    }
+    return group;
+  }
+
+  /** 影が出た回数 */
+  getShadowCount(): number {
+    return this.shadows;
+  }
+
+  /** いま影が映っている隠れ場所の id。映っていなければ null */
+  getShadowSpotId(): string | null {
+    return this.shadowSpot?.config.id ?? null;
   }
 
   /** 花。花びら5枚＋まんなか。三角形は 12枚 */
@@ -997,6 +1120,12 @@ export class Flavor {
     this.footprints = [];
     for (const l of this.leftovers.values()) disposeObject3D(l.group);
     this.leftovers.clear();
+    if (this.shadow) {
+      disposeObject3D(this.shadow);
+      this.shadow = null;
+      this.shadowSpot = null;
+    }
+    disposeObject3D(this.frontGroup);
     this.callAt.length = 0;
     this.callFns.length = 0;
     this.crossWings = [];

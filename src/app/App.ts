@@ -270,6 +270,8 @@ export class App {
         chorus: { runs: number; running: boolean };
         footprints: number;
         leftovers: { alive: number; total: number };
+        shadows: number;
+        shadowSpotId: string | null;
       } | null => {
         const flavor = this.sceneRoot?.flavor;
         if (!flavor) return null;
@@ -284,6 +286,8 @@ export class App {
           chorus: flavor.getChorus(),
           footprints: flavor.getFootprintCount(),
           leftovers: flavor.getLeftovers(),
+          shadows: flavor.getShadowCount(),
+          shadowSpotId: flavor.getShadowSpotId(),
         };
       },
       getFrameCount: (): number => this.loop.frameCount,

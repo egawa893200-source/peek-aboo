@@ -88,6 +88,9 @@ export class SceneRoot {
     this.group.add(spots.group);
     // 横切るものは隠れ場所より奥に置く（`Flavor` が z を決めている）
     this.group.add(flavor.group);
+    // 影だけは隠れ場所の手前。**隠れているあいだしか出さない**ので、
+    // 出てきた動物にかぶることがない（`Flavor` の `SHADOW_Z` を読むこと）
+    this.group.add(flavor.frontGroup);
   }
 
   /**

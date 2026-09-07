@@ -100,6 +100,11 @@ export interface SceneFlavor {
   footprints?: boolean;
   /** 動物が引っ込んだあと、その場所に残るもの。次に押すと消える */
   leftover?: LeftoverKind;
+  /**
+   * 隠れているあいだ、ときどき影だけがふわっと映る（誰が居るかは分からない）。
+   * **出ているあいだは絶対に出さない**（動物に影がかぶる）
+   */
+  shadowPeek?: boolean;
 }
 
 /** 隠れ場所の形。開き方もこれで決まる */
