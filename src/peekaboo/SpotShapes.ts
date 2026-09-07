@@ -314,8 +314,10 @@ function applySurface(group: THREE.Group, kind: SpotKind, seed: number): void {
 
   group.updateMatrixWorld(true);
   _shadeBox.setFromObject(group);
+  const minX = _shadeBox.min.x;
   const minY = _shadeBox.min.y;
   const minZ = _shadeBox.min.z;
+  const spanX = Math.max(1e-6, _shadeBox.max.x - minX);
   const spanY = Math.max(1e-6, _shadeBox.max.y - minY);
   const spanZ = Math.max(1e-6, _shadeBox.max.z - minZ);
 
@@ -331,8 +333,14 @@ function applySurface(group: THREE.Group, kind: SpotKind, seed: number): void {
       _shadeVec.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
       const up = (_shadeVec.y - minY) / spanY;
       const front = (_shadeVec.z - minZ) / spanZ;
-      // 上を明るく下を暗く（中央が 1.0）。奥ほど暗く
-      const shade = (1 + FORM_SHADING.lift * (up - 0.5)) * (1 - FORM_SHADING.depth * (1 - front));
+      const across = (_shadeVec.x - minX) / spanX;
+      // 上を明るく下を暗く（中央が 1.0）。奥ほど暗く。
+      // **横も。** 光の側（左）を明るく。これが無いと、板の左端と右端が
+      // 0.3/255 しか違わず、木目を重ねても面は平らに見える
+      const shade =
+        (1 + FORM_SHADING.lift * (up - 0.5)) *
+        (1 + FORM_SHADING.side * (0.5 - across)) *
+        (1 - FORM_SHADING.depth * (1 - front));
       colors[i * 3] = shade;
       colors[i * 3 + 1] = shade;
       colors[i * 3 + 2] = shade;
