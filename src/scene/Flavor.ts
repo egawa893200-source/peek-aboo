@@ -44,8 +44,8 @@ import * as THREE from 'three';
 
 import { detectReducedMotion } from '../peekaboo/AnimalSystem';
 import { disposeObject3D } from '../peekaboo/SpotShapes';
-import type { SpotRuntime } from '../peekaboo/SpotSystem';
-import type { CrossingKind, SceneFlavor, SpotState, SwayKind } from '../types';
+import type { SpotHitTester, SpotRuntime } from '../peekaboo/SpotSystem';
+import type { CrossingKind, LeftoverKind, SceneFlavor, SpotState, SwayKind } from '../types';
 
 /* --- ゆれ（常時）--------------------------------------------------------- */
 
@@ -130,6 +130,67 @@ const CROSS_Z = -0.9;
 /** ちょうちょの羽ばたき。速いが、動くのは羽だけなので明滅にはならない */
 const FLAP_HZ = 5;
 
+/** 隠れ場所にとまる割合。**毎回とまらせない**（とまるから意味がある） */
+export const LAND_CHANCE = 0.5;
+/** とまっている時間。短いと「ぶつかった」に見える */
+export const PERCH_SEC = 1.6;
+/** とまる高さ。**ふたの上に出す。** 中に入ると隠れ場所に食われて見えない */
+const PERCH_LIFT = 1.0;
+
+/* --- あぶく（うみ）------------------------------------------------------- */
+
+/** 同時に上がっている数。多いと目が散る */
+export const BUBBLE_COUNT = 7;
+/** 下から上まで昇る時間 */
+const BUBBLE_RISE_SEC = 9;
+const BUBBLE_BOTTOM_Y = -4.2;
+const BUBBLE_TOP_Y = 4.6;
+/** 隠れ場所より奥。**手前に置くと動物に丸がかぶる** */
+const BUBBLE_Z = -0.55;
+/** 押したときに割れる距離（CSS px）。隠れ場所の判定より小さくする */
+export const BUBBLE_POP_PX = 70;
+/** 割れてから次に出るまで */
+const BUBBLE_RESPAWN_SEC = 1.2;
+
+/* --- みんなで鳴く（のうじょう）-------------------------------------------- */
+
+/** 呼び込みの間隔。**短いと「勝手に動く画面」になって、押す気が失せる** */
+export const CHORUS_EVERY_SEC = 16;
+/** 1箇所ずつずらす時間 */
+const CHORUS_STEP_SEC = 0.45;
+/** 1箇所が鳴きはじめてから収まるまで */
+const CHORUS_OPEN_SEC = 0.7;
+
+/* --- 足あと（のはら）----------------------------------------------------- */
+
+/** 残る数。これを超えたら古いものから消す */
+export const FOOTPRINT_MAX = 12;
+/** 消えるまで。**長いと画面が足あとだらけになる** */
+const FOOTPRINT_FADE_SEC = 3.2;
+/** 隠れ場所より奥。地面に落ちた跡なので下のほう */
+const FOOTPRINT_Z = -0.5;
+/**
+ * 足あとを置く高さ。
+ *
+ * **跳ねた高さに置いてはいけない**（2026-09-07 の実測）。
+ * うさぎの居る高さに落とすと、5つのくさむらのどれかが必ず前に来て、
+ * **4つ置いても画面には1つも見えなかった**（赤く塗って撮って分かった）。
+ * くさむらの下端（いちばん下の段で およそ -2.0）より下、
+ * ゆれる草（-3.4）より上に、横一列で残す。
+ * **どこを通ったかは左右で読める**ので、高さは揃っていてよい。
+ */
+const FOOTPRINT_Y = -2.6;
+
+/* --- 残るもの（花・卵）---------------------------------------------------- */
+
+/** 引っ込んだあと残る割合。**毎回残すと「置き物」になって気づかれない** */
+export const LEFTOVER_CHANCE = 0.5;
+/** 出てくるまで（にょきっと伸びる） */
+const LEFTOVER_GROW_SEC = 0.6;
+/** 隠れ場所より奥、ふたの下。**上に置くと動物にかぶる** */
+const LEFTOVER_Z = -0.25;
+const LEFTOVER_DROP = 1.0;
+
 /**
  * この味つけが隠れ場所を傾けうる最大角[rad]。
  *
@@ -163,6 +224,41 @@ export interface FlavorOptions {
 /** 足音のイベント。`App` が音に繋ぐ（ここでは音を鳴らさない） */
 export type FlavorEvent = () => void;
 
+/**
+ * みんなで鳴くときの1声。`pitch` は声の高さの倍率。
+ * **場所ごとに変える。** 同じ高さで4回鳴くと、1匹が4回鳴いたように聞こえる
+ */
+export type FlavorCallEvent = (spot: SpotRuntime, pitch: number) => void;
+
+/** あぶく1つぶん */
+interface BubbleRuntime {
+  mesh: THREE.Mesh;
+  /** 0〜1。1 で画面の上に抜ける */
+  t: number;
+  speed: number;
+  x: number;
+  /** 横に漂う幅 */
+  drift: number;
+  /** 割れてから次に出るまでの残り秒。0 なら上がっている */
+  wait: number;
+  /** 当たり判定に使うワールド座標。**毎フレーム作り直さない**（§10-3） */
+  world: THREE.Vector3;
+}
+
+/** 足あと1つぶん */
+interface FootprintRuntime {
+  mesh: THREE.Mesh;
+  /** 残り秒 */
+  life: number;
+}
+
+/** 残るもの（花・卵）1つぶん */
+interface LeftoverRuntime {
+  group: THREE.Object3D;
+  /** 生えてからの秒 */
+  t: number;
+}
+
 export class Flavor {
   /** 横切るものを入れる。`SceneRoot` が場面の group に足して、まとめて捨てる */
   readonly group = new THREE.Group();
@@ -188,6 +284,31 @@ export class Flavor {
 
   /** 横切るもの。1匹ぶんの見た目と、いま渡っているかどうか */
   private crossing: THREE.Object3D | null = null;
+  /** この回でとまる隠れ場所。null なら素通り */
+  private landAt: SpotRuntime | null = null;
+  /** とまっているあいだの残り秒 */
+  private perchLeft = 0;
+  private landings = 0;
+
+  /** あぶく（うみ）。使い回す。**毎フレーム new をしない** */
+  private bubbles: BubbleRuntime[] = [];
+  private popped = 0;
+
+  /** みんなで鳴く（のうじょう）。次の呼び込みまでの秒 */
+  private chorusWait = CHORUS_EVERY_SEC * 0.6;
+  /** 走っている呼び込みの経過秒。null なら鳴いていない */
+  private chorusT: number | null = null;
+  private chorusRuns = 0;
+  private readonly callFns: FlavorCallEvent[] = [];
+  /** 鳴らし待ちの声。`[時刻, 場所, 高さ]` を昇順で持つ */
+  private readonly callAt: { at: number; spot: SpotRuntime; pitch: number }[] = [];
+
+  /** 足あと（のはら）。古いものから消す */
+  private footprints: FootprintRuntime[] = [];
+
+  /** 残るもの（花・卵）。隠れ場所ごとに1つまで */
+  private readonly leftovers = new Map<string, LeftoverRuntime>();
+  private leftoverCount = 0;
   private crossWings: THREE.Object3D[] = [];
   /** 次に出るまでの待ち時間。負のあいだは渡っている */
   private crossWait = CROSS_GAP_SEC * 0.5;
@@ -207,6 +328,8 @@ export class Flavor {
       this.props = this.buildProps(this.flavor.sway);
       for (const p of this.props) this.group.add(p);
     }
+    if (this.flavor.bubbles) this.bubbles = this.buildBubbles();
+    for (const b of this.bubbles) this.group.add(b.mesh);
     if (this.flavor.crossing) this.crossing = this.buildCrossing(this.flavor.crossing);
     if (this.crossing) {
       this.crossing.visible = false;
@@ -231,6 +354,10 @@ export class Flavor {
     this.applySpotTilt();
     this.applyPropSway();
     this.updateCrossing(dt);
+    this.updateBubbles(dt);
+    this.updateChorus(dt);
+    this.updateFootprints(dt);
+    this.updateLeftovers(dt);
   }
 
   /** 遷移を拾って、足音と地ひびきを仕込む */
@@ -249,6 +376,13 @@ export class Flavor {
       if (prev === 'appearing' && s.state === 'out' && this.flavor.quake) {
         this.quakeLeft = QUAKE_SEC;
       }
+
+      // 引っ込みきったら、その場所に花／卵が残る（§6 の〈中〉）
+      if (prev === 'hiding' && s.state === 'hidden' && this.flavor.leftover) {
+        if (this.rng() < LEFTOVER_CHANCE) this.addLeftover(s, this.flavor.leftover);
+      }
+      // 隠れているあいだだけ残す。**押したら消える**（次のばあの邪魔をしない）
+      if (prev === 'hidden' && s.state !== 'hidden') this.removeLeftover(s);
     }
 
     while (this.footstepAt.length > 0 && this.footstepAt[0] <= this.clock) {
@@ -304,6 +438,293 @@ export class Flavor {
           this.depth;
       }
     }
+  }
+
+  /* --- あぶく（うみ）------------------------------------------------------ */
+
+  /**
+   * あぶくを作る。**手続き生成だけ**（不変条件7）。
+   *
+   * 透ける板1枚。`transparent` は重なると順番が怪しくなるが、
+   * 隠れ場所より奥に固めてあるので、混ざる相手が同じあぶくしかない。
+   */
+  private buildBubbles(): BubbleRuntime[] {
+    const out: BubbleRuntime[] = [];
+    for (let i = 0; i < BUBBLE_COUNT; i++) {
+      const r = 0.06 + this.rng() * 0.1;
+      const mesh = new THREE.Mesh(
+        new THREE.CircleGeometry(r, 12),
+        new THREE.MeshBasicMaterial({
+          color: 0xdff2ff,
+          transparent: true,
+          opacity: 0.34,
+          depthWrite: false,
+          toneMapped: false,
+        })
+      );
+      // **作った時点で奥に置いておく。** 原点のままだと、最初の更新までの
+      // 1フレームだけ「飾りが隠れ場所より手前」になる
+      mesh.position.set(0, BUBBLE_BOTTOM_Y, BUBBLE_Z);
+      out.push({
+        mesh,
+        // 最初からばらけて並べる。**そろって上がると噴水に見える**
+        t: this.rng(),
+        speed: 0.7 + this.rng() * 0.6,
+        x: (this.rng() * 2 - 1) * 2.5,
+        drift: 0.1 + this.rng() * 0.25,
+        wait: 0,
+        world: new THREE.Vector3(),
+      });
+    }
+    return out;
+  }
+
+  private updateBubbles(dt: number): void {
+    for (const b of this.bubbles) {
+      if (b.wait > 0) {
+        b.wait -= dt;
+        if (b.wait > 0) continue;
+        this.resetBubble(b);
+      }
+      b.t += (dt / BUBBLE_RISE_SEC) * b.speed;
+      if (b.t >= 1) this.resetBubble(b);
+
+      const y = BUBBLE_BOTTOM_Y + (BUBBLE_TOP_Y - BUBBLE_BOTTOM_Y) * b.t;
+      const x = b.x + Math.sin(b.t * Math.PI * 3 + b.x) * b.drift * this.depth;
+      b.mesh.position.set(x, y, BUBBLE_Z);
+      b.world.set(x, y, BUBBLE_Z);
+      b.mesh.visible = true;
+    }
+  }
+
+  private resetBubble(b: BubbleRuntime): void {
+    b.t = 0;
+    b.x = (this.rng() * 2 - 1) * 2.5;
+    b.speed = 0.7 + this.rng() * 0.6;
+  }
+
+  /**
+   * 押されたところにあぶくがあれば割る。割ったら true。
+   *
+   * **判定は 3D のレイではなく画面座標で**（§7-3。隠れ場所と同じ考え方）。
+   * 隠れ場所の判定（およそ 100px）より小さくしてあるので、
+   * **あぶくのせいで隠れ場所が押せなくなることはない**（App は先に隠れ場所を見る）。
+   */
+  tap(screenX: number, screenY: number, tester: SpotHitTester): boolean {
+    let best: BubbleRuntime | null = null;
+    let bestDist = BUBBLE_POP_PX;
+    for (const b of this.bubbles) {
+      if (b.wait > 0) continue;
+      const d = tester.distancePx(b.world, screenX, screenY);
+      if (d < bestDist) {
+        bestDist = d;
+        best = b;
+      }
+    }
+    if (!best) return false;
+    best.wait = BUBBLE_RESPAWN_SEC;
+    best.mesh.visible = false;
+    this.popped++;
+    return true;
+  }
+
+  /* --- みんなで鳴く（のうじょう）------------------------------------------ */
+
+  /** 1声ぶんのイベント。`App` が音に繋ぐ */
+  onCall(fn: FlavorCallEvent): void {
+    this.callFns.push(fn);
+  }
+
+  /**
+   * ときどき、隠れ場所が順に鳴く（みんなで鳴く）。
+   *
+   * ==========================================================================
+   * **ふたは開けない。揺らすだけ。** ここも実測で決めた（2026-09-07）。
+   * はじめは `extraOpen` を 0.3 まで開ける版で作ったが、
+   * 開けられる量は隠れ場所によって桁が違った（15×15 の格子で測った、
+   * 体が見えはじめない上限）:
+   *
+   *   おうち  はこ 1.00 / カーテン **0.05** / ふとん 0.85 / とびら 0.45
+   *   のうじょう  こや 0.40 / **わら 0.10** / さく 1.00 / おけ 1.00
+   *   どうぶつえん  たかき **0.05**  ／ うみ  かいそう 0.10
+   *
+   * のうじょうの わら に合わせると 0.05 しか開かず、画面では動いて見えない。
+   * §4-6 の「こっちだよ」と同じ**揺れ**（`callShake`）なら、ふたを開けずに
+   * 「ここに居るよ」を返せる。**開ける演出は空の隠れ場所にだけ許される**
+   * （§4-6 と §4-5 の到着はどちらも中身が居ない場所）。
+   * ==========================================================================
+   *
+   * **全部が隠れているときだけ。** 誰かが出ている最中に割り込むと、
+   * 「押したから出た」のか「勝手に動いた」のかが分からなくなる（§4-1）。
+   */
+  private updateChorus(dt: number): void {
+    if (!this.flavor.chorus) return;
+
+    if (this.chorusT === null) {
+      this.chorusWait -= dt;
+      if (this.chorusWait > 0) return;
+      // 1つでも動いていたら見送る。**待ち時間は積み直さない**（次のフレームでまた見る）
+      for (const s of this.spots) if (s.state !== 'hidden' || s.extraOpen > 0) return;
+      this.chorusT = 0;
+      this.chorusRuns++;
+      this.chorusWait = CHORUS_EVERY_SEC;
+      for (let i = 0; i < this.spots.length; i++) {
+        // 声は場所ごとに高さを変える。同じ高さだと1匹が4回鳴いたように聞こえる
+        const pitch = 0.92 + (i / Math.max(1, this.spots.length - 1)) * 0.16;
+        this.callAt.push({ at: i * CHORUS_STEP_SEC, spot: this.spots[i], pitch });
+      }
+    }
+
+    const t = (this.chorusT += dt);
+    while (this.callAt.length > 0 && this.callAt[0].at <= t) {
+      const next = this.callAt.shift();
+      if (!next) continue;
+      // 押されて出ている場所は飛ばす（§4-1 が動かしている最中）
+      if (next.spot.state !== 'hidden') continue;
+      next.spot.callShake = 1;
+      for (const fn of this.callFns) fn(next.spot, next.pitch);
+    }
+
+    if (t > (this.spots.length - 1) * CHORUS_STEP_SEC + CHORUS_OPEN_SEC) {
+      this.chorusT = null;
+      this.callAt.length = 0;
+    }
+  }
+
+  /* --- 足あと（のはら）---------------------------------------------------- */
+
+  /**
+   * 足あとを1つ落とす。`SceneRoot` が `ChaseSystem.onHop` から呼ぶ。
+   *
+   * **どこを通ったかが目で追える**ようにするためのもの。
+   * 跳ねた先ではなく、**跳ねた場所**に置く
+   */
+  dropFootprint(x: number): void {
+    if (!this.flavor.footprints) return;
+    // **暗い色にしない。** 0x2a2a1c で撮ったら、草むらと同じ暗さで
+    // 1つも見えなかった（実測 2026-09-07。数は 4 と出ているのに画面に無い）。
+    // 踏んで土が出た跡として、明るい砂色にする
+    const mesh = new THREE.Mesh(
+      new THREE.CircleGeometry(0.11, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xc8b088,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        toneMapped: false,
+      })
+    );
+    mesh.position.set(x, FOOTPRINT_Y, FOOTPRINT_Z);
+    mesh.scale.set(1.4, 0.7, 1);
+    this.group.add(mesh);
+    this.footprints.push({ mesh, life: FOOTPRINT_FADE_SEC });
+    // 増え続けないように、古いものから捨てる（不変条件8）
+    while (this.footprints.length > FOOTPRINT_MAX) {
+      const old = this.footprints.shift();
+      if (old) disposeObject3D(old.mesh);
+    }
+  }
+
+  private updateFootprints(dt: number): void {
+    for (let i = this.footprints.length - 1; i >= 0; i--) {
+      const f = this.footprints[i];
+      f.life -= dt;
+      const mat = f.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.max(0, (f.life / FOOTPRINT_FADE_SEC) * 0.55);
+      if (f.life <= 0) {
+        disposeObject3D(f.mesh);
+        this.footprints.splice(i, 1);
+      }
+    }
+  }
+
+  /* --- 残るもの（花・卵）-------------------------------------------------- */
+
+  private addLeftover(spot: SpotRuntime, kind: LeftoverKind): void {
+    if (this.leftovers.has(spot.config.id)) return;
+    const group = kind === 'flower' ? this.buildFlower() : this.buildEgg();
+    // **ふたの下、少しずらして置く。** 真ん中に置くと、次に出てくる動物に重なる
+    group.position.set(
+      spot.worldPosition.x + (this.rng() < 0.5 ? -0.62 : 0.62),
+      spot.worldPosition.y - LEFTOVER_DROP,
+      LEFTOVER_Z
+    );
+    group.scale.setScalar(0.001);
+    this.group.add(group);
+    this.leftovers.set(spot.config.id, { group, t: 0 });
+    this.leftoverCount++;
+  }
+
+  private removeLeftover(spot: SpotRuntime): void {
+    const left = this.leftovers.get(spot.config.id);
+    if (!left) return;
+    this.leftovers.delete(spot.config.id);
+    disposeObject3D(left.group);
+  }
+
+  private updateLeftovers(dt: number): void {
+    for (const left of this.leftovers.values()) {
+      left.t += dt;
+      // にょきっと伸びる。1.0 を少し越えてから戻る（§4-4 と同じ弾み）
+      const u = Math.min(1, left.t / LEFTOVER_GROW_SEC);
+      const pop = 1 + Math.sin(u * Math.PI) * 0.18 * this.depth;
+      left.group.scale.setScalar(Math.max(0.001, u * pop));
+      left.group.rotation.z = Math.sin(this.clock * 0.8 + left.group.position.x) * 0.06 * this.depth;
+    }
+  }
+
+  /** 花。花びら5枚＋まんなか。三角形は 12枚 */
+  private buildFlower(): THREE.Object3D {
+    const group = new THREE.Group();
+    const hue = 0.92 + this.rng() * 0.12;
+    const petalMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color().setHSL(hue % 1, 0.62, 0.62),
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    for (let i = 0; i < 5; i++) {
+      const petal = new THREE.Mesh(new THREE.CircleGeometry(0.11, 8), petalMat.clone());
+      const a = (i / 5) * Math.PI * 2;
+      petal.position.set(Math.cos(a) * 0.12, 0.38 + Math.sin(a) * 0.12, 0);
+      group.add(petal);
+    }
+    const core = new THREE.Mesh(
+      new THREE.CircleGeometry(0.06, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffd45e, toneMapped: false })
+    );
+    core.position.set(0, 0.38, 0.01);
+    group.add(core);
+    const stem = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.045, 0.38),
+      new THREE.MeshBasicMaterial({ color: 0x2f5d2a, side: THREE.DoubleSide, toneMapped: false })
+    );
+    stem.position.set(0, 0.19, -0.01);
+    group.add(stem);
+    petalMat.dispose();
+    return group;
+  }
+
+  /** 卵。丸を縦に伸ばしただけ。**割れる演出は入れていない**（押すと消える） */
+  private buildEgg(): THREE.Object3D {
+    const group = new THREE.Group();
+    const egg = new THREE.Mesh(
+      new THREE.CircleGeometry(0.2, 14),
+      new THREE.MeshBasicMaterial({ color: 0xf3e6c8, toneMapped: false })
+    );
+    egg.scale.set(0.82, 1.15, 1);
+    egg.position.y = 0.23;
+    group.add(egg);
+    // まだら。無地だと石に見えた
+    for (let i = 0; i < 3; i++) {
+      const spot = new THREE.Mesh(
+        new THREE.CircleGeometry(0.03, 6),
+        new THREE.MeshBasicMaterial({ color: 0xc9a97a, toneMapped: false })
+      );
+      const a = this.rng() * Math.PI * 2;
+      spot.position.set(Math.cos(a) * 0.09, 0.23 + Math.sin(a) * 0.12, 0.01);
+      group.add(spot);
+    }
+    return group;
   }
 
   /**
@@ -364,12 +785,35 @@ export class Flavor {
     if (this.crossWait > 0) {
       this.crossWait -= dt;
       if (this.crossWait > 0) return;
-      // 出発。高さと向きを引き直す
+      // 出発。高さと向き、とまる場所を引き直す
       this.crossT = 0;
       this.crossFromLeft = !this.crossFromLeft;
       this.crossY = 0.1 + this.rng() * 1.8;
       this.crossings++;
+      this.landAt = null;
+      this.perchLeft = 0;
+      if (this.flavor.crossingLands && this.spots.length > 0 && this.rng() < LAND_CHANCE) {
+        this.landAt = this.spots[Math.floor(this.rng() * this.spots.length) % this.spots.length];
+      }
       obj.visible = true;
+    }
+
+    // とまっている最中。**時間を進めない**（ここで止まっている）
+    if (this.perchLeft > 0 && this.landAt) {
+      this.perchLeft -= dt;
+      if (this.perchLeft > 0) {
+        obj.position.set(
+          this.landAt.worldPosition.x,
+          this.landAt.worldPosition.y + PERCH_LIFT + Math.sin(this.clock * 2.2) * 0.04 * this.depth,
+          CROSS_Z
+        );
+        this.flapWings();
+        return;
+      }
+      // **とまり終わったら行き先を消す。**
+      // 残したままにすると「もう通り過ぎている」判定が毎フレーム真になり、
+      // 1回の横断で何十回もとまり直した（実測: 1回の横断で 28回）
+      this.landAt = null;
     }
 
     this.crossT += dt;
@@ -377,19 +821,37 @@ export class Flavor {
     if (u >= 1) {
       obj.visible = false;
       this.crossWait = CROSS_GAP_SEC;
+      this.landAt = null;
       return;
     }
 
     const from = this.crossFromLeft ? -CROSS_X : CROSS_X;
+    const x = from + (this.crossFromLeft ? 2 : -2) * CROSS_X * u;
     obj.position.set(
-      from + (this.crossFromLeft ? 2 : -2) * CROSS_X * u,
+      x,
       this.crossY + Math.sin(u * Math.PI * 4) * 0.35 * this.depth,
       CROSS_Z
     );
+
+    // とまる場所を通り過ぎる瞬間に、そこへ降りる。
+    // **降りたら、その場所を揺らして「ここだよ」と教える**（§4-2 のヒントと同じ揺れ）
+    if (this.landAt && this.perchLeft <= 0) {
+      const passed = this.crossFromLeft ? x >= this.landAt.worldPosition.x : x <= this.landAt.worldPosition.x;
+      if (passed) {
+        this.perchLeft = PERCH_SEC;
+        this.landings++;
+        this.landAt.callShake = 1;
+      }
+    }
+
     // 進む向きを向く。**裏返さない**（板1枚なので裏を向くと消える）
     obj.scale.x = this.crossFromLeft ? 1 : -1;
 
-    // ちょうちょの羽ばたき。魚は尾を振る（どちらも `crossWings` に入れてある）
+    this.flapWings();
+  }
+
+  /** ちょうちょの羽ばたき。魚は尾を振る（どちらも `crossWings` に入れてある） */
+  private flapWings(): void {
     const flap = Math.sin(this.clock * FLAP_HZ * Math.PI * 2);
     for (let i = 0; i < this.crossWings.length; i++) {
       const w = this.crossWings[i];
@@ -477,6 +939,36 @@ export class Flavor {
     return max;
   }
 
+  /** とまった回数（§6 の〈中〉） */
+  getLandingCount(): number {
+    return this.landings;
+  }
+
+  /** いま、とまっている隠れ場所の id。とまっていなければ null */
+  getPerchedSpotId(): string | null {
+    return this.perchLeft > 0 && this.landAt ? this.landAt.config.id : null;
+  }
+
+  /** あぶくの数と、割った回数 */
+  getBubbles(): { count: number; popped: number } {
+    return { count: this.bubbles.length, popped: this.popped };
+  }
+
+  /** みんなで鳴いた回数と、いま鳴いている最中かどうか */
+  getChorus(): { runs: number; running: boolean } {
+    return { runs: this.chorusRuns, running: this.chorusT !== null };
+  }
+
+  /** 画面に残っている足あとの数 */
+  getFootprintCount(): number {
+    return this.footprints.length;
+  }
+
+  /** いま残っている花／卵の数と、これまでに出した数 */
+  getLeftovers(): { alive: number; total: number } {
+    return { alive: this.leftovers.size, total: this.leftoverCount };
+  }
+
   /** ゆれる飾りの数。0 なら `sway` を指定していない場面 */
   getPropCount(): number {
     return this.props.length;
@@ -499,6 +991,14 @@ export class Flavor {
     for (const s of this.spots) s.group.rotation.z = 0;
     for (const p of this.props) disposeObject3D(p);
     this.props = [];
+    for (const b of this.bubbles) disposeObject3D(b.mesh);
+    this.bubbles = [];
+    for (const f of this.footprints) disposeObject3D(f.mesh);
+    this.footprints = [];
+    for (const l of this.leftovers.values()) disposeObject3D(l.group);
+    this.leftovers.clear();
+    this.callAt.length = 0;
+    this.callFns.length = 0;
     this.crossWings = [];
     if (this.crossing) {
       disposeObject3D(this.crossing);

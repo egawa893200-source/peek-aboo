@@ -208,6 +208,24 @@ export class SceneRoot {
       ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed ^ 0x1b873593 } : {}),
     });
 
+    // 足あと（§6 の〈中〉）。**跳ねた場所に置く。**
+    // 走り手はモードBに1体しか居ないので、居るスロットを探して世界座標を取る。
+    // `ChaseSystem` は位置をイベントで渡さない（跳ねた回数しか知らせない）
+    if (chase && config.flavor?.footprints) {
+      const at = new THREE.Vector3();
+      chase.onHop(() => {
+        for (const runtime of spots.runtimes) {
+          const slot = animals.getSlot(runtime.config.id);
+          if (!slot) continue;
+          slot.built.group.getWorldPosition(at);
+          // 高さは `Flavor` が決める（うさぎの高さに置くと、くさむらに
+          // 隠れて1つも見えなかった。`FOOTPRINT_Y` の説明を読むこと）
+          flavor.dropFootprint(at.x);
+          return;
+        }
+      });
+    }
+
     return new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdrop, shadowTexture, shadows, cutouts);
   }
 

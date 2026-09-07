@@ -69,6 +69,9 @@ export type SwayKind = 'wind' | 'water';
 /** 画面を横切るもの。**手続き生成だけで作る**（不変条件7） */
 export type CrossingKind = 'butterfly' | 'fish';
 
+/** 隠れ場所に残るもの（動物が引っ込んだあと）。次に押すと消える */
+export type LeftoverKind = 'flower' | 'egg';
+
 /** 場面ごとの味つけ。**どれも省略できる。省略した場面は何も起きない** */
 export interface SceneFlavor {
   /** 隠れ場所がゆっくり傾き続ける */
@@ -81,6 +84,22 @@ export interface SceneFlavor {
   footstep?: boolean;
   /** ため のあいだに隠れ場所がもぞもぞ動く */
   wobble?: boolean;
+
+  /* --- ここから〈中〉〈大〉の案（2026-09-07。人間が「弱い」と言って足した） --- */
+
+  /**
+   * 横切るものが、どこかの隠れ場所にとまる。
+   * **とまった場所が「次に押してほしい場所」になる**（揺れて教える）
+   */
+  crossingLands?: boolean;
+  /** あぶくが上がり続ける。**押すと割れる**ので、外したタップにも返しが増える */
+  bubbles?: boolean;
+  /** ときどき、隠れ場所が順に少しだけ開いて鳴く（みんなで鳴く） */
+  chorus?: boolean;
+  /** 跳ねた跡に足あとが残って、ゆっくり消える（モードBだけ） */
+  footprints?: boolean;
+  /** 動物が引っ込んだあと、その場所に残るもの。次に押すと消える */
+  leftover?: LeftoverKind;
 }
 
 /** 隠れ場所の形。開き方もこれで決まる */

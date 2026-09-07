@@ -139,7 +139,7 @@ const NOHARA: SceneConfig = {
   sky: ["#7fb6d8", "#2f4a26"],
   // のはら。草がひとわたり揺れる。**横切るものは置かない**
   // （うさぎを目で追う場面なので、ほかに動くものがあると気が散る）
-  flavor: { sway: "wind" },
+  flavor: { sway: "wind", footprints: true },
   label: "のはら",
   mode: "chase",
   backgroundUrl: null,
@@ -200,7 +200,13 @@ const SOTO: SceneConfig = {
   // そと。昼の空から草の色へ
   sky: ["#6aa8d8", "#2b4522"],
   // そと。風が左から右へ渡り、ときどきちょうちょが横切る
-  flavor: { sway: "wind", crossing: "butterfly", wobble: true },
+  flavor: {
+    sway: "wind",
+    crossing: "butterfly",
+    crossingLands: true,
+    wobble: true,
+    leftover: "flower",
+  },
   label: "そと",
   mode: "hideout",
   backgroundUrl: null,
@@ -257,7 +263,7 @@ const UMI: SceneConfig = {
   // うみ。水の中。上が明るく、下は深い
   sky: ["#2e7ea6", "#04202f"],
   // うみ。ゆっくり漂って、ときどき小魚の群れが横切る
-  flavor: { sway: "water", crossing: "fish" },
+  flavor: { sway: "water", crossing: "fish", crossingLands: true, bubbles: true },
   label: "うみ",
   mode: "hideout",
   backgroundUrl: null,
@@ -310,7 +316,7 @@ const NOUJOU: SceneConfig = {
   // のうじょう。空から土の色へ
   sky: ["#8ab0cc", "#3a2c19"],
   // のうじょう。風と、ため のもぞもぞ
-  flavor: { sway: "wind", wobble: true },
+  flavor: { sway: "wind", wobble: true, chorus: true, leftover: "egg" },
   label: "のうじょう",
   mode: "hideout",
   backgroundUrl: null,
@@ -403,7 +409,7 @@ const KYORYU: SceneConfig = {
   sky: ["#a05a30", "#241108"],
   // きょうりゅう。足音のあと、出きった瞬間に地ひびき。
   // **明滅ではなく動き**なので不変条件6 には触れない
-  flavor: { quake: true, footstep: true },
+  flavor: { quake: true, footstep: true, leftover: "egg" },
   label: "きょうりゅう",
   mode: "hideout",
   backgroundUrl: null,

@@ -177,9 +177,13 @@ export class App {
       // ぴょんぴょん（§4-5）。1跳ねごとに1回
       next.chase?.onHop(() => this.audio.playOneShot('hop'));
 
-      // 場面ごとの味つけ（2026-09-07）。足音だけ音に繋ぐ。
-      // **`Flavor` の中で音を鳴らさない。** 音の配線は App に集める
+      // 場面ごとの味つけ（2026-09-07）。音は App に集める
+      // （**`Flavor` の中で音を鳴らさない**）
       next.flavor.onFootstep(() => this.audio.playOneShot('thud'));
+      // みんなで鳴く（§6 の〈中〉）。場所ごとに声の高さを変える。
+      // **押していないのに鳴る唯一の声**なので、ばあより控えめに聞こえるよう
+      // ピッチだけ振って、同じ「ばあっ！」を使う
+      next.flavor.onCall((_spot, pitch) => this.audio.playVoice('baa', pitch));
     } finally {
       this.building = false;
     }
@@ -202,6 +206,11 @@ export class App {
 
     const spots = this.sceneRoot?.spots;
     if (!spots) return;
+
+    // あぶく（§6 の〈中〉）。**隠れ場所より先に見ない。**
+    // 割れるかどうかに関わらず、このあと隠れ場所の判定は必ず走る
+    // （あぶくのせいで「押したのに動物が出ない」を作らない）
+    this.sceneRoot?.flavor.tap(screenX, screenY, this.projector);
 
     // 当たり判定は 3D のレイではなく画面座標で（§7-3）
     const hit = spots.pick(screenX, screenY, this.projector);
@@ -255,6 +264,12 @@ export class App {
         crossings: number;
         quaking: boolean;
         maxTiltRad: number;
+        landings: number;
+        perchedSpotId: string | null;
+        bubbles: { count: number; popped: number };
+        chorus: { runs: number; running: boolean };
+        footprints: number;
+        leftovers: { alive: number; total: number };
       } | null => {
         const flavor = this.sceneRoot?.flavor;
         if (!flavor) return null;
@@ -263,6 +278,12 @@ export class App {
           crossings: flavor.getCrossingCount(),
           quaking: flavor.isQuaking(),
           maxTiltRad: flavor.getMaxTiltRad(),
+          landings: flavor.getLandingCount(),
+          perchedSpotId: flavor.getPerchedSpotId(),
+          bubbles: flavor.getBubbles(),
+          chorus: flavor.getChorus(),
+          footprints: flavor.getFootprintCount(),
+          leftovers: flavor.getLeftovers(),
         };
       },
       getFrameCount: (): number => this.loop.frameCount,

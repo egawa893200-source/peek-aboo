@@ -726,7 +726,10 @@ test.describe('全場面', () => {
       const flavor = await page.evaluate(() => window.__peekaboo.getFlavor());
       lines.push(
         `  ${id.padEnd(9)} 三角形 ${String(info.triangles).padStart(6)}  draw call ${String(info.calls).padStart(3)}` +
-          `  足音 ${flavor?.footsteps ?? 0}  横切り ${flavor?.crossings ?? 0}` +
+          `  足音 ${flavor?.footsteps ?? 0}  横切り ${flavor?.crossings ?? 0}(とまり ${flavor?.landings ?? 0})` +
+          `  あぶく ${flavor?.bubbles.count ?? 0}/割れ ${flavor?.bubbles.popped ?? 0}` +
+          `  鳴き ${flavor?.chorus.runs ?? 0}  足あと ${flavor?.footprints ?? 0}` +
+          `  残り ${flavor?.leftovers.alive ?? 0}/${flavor?.leftovers.total ?? 0}` +
           `  傾き ${(((flavor?.maxTiltRad ?? 0) * 180) / Math.PI).toFixed(2)}°`
       );
 

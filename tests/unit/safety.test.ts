@@ -45,10 +45,14 @@ function camera(): THREE.PerspectiveCamera {
 }
 import { findScene, SCENES } from '../../src/data/scenes';
 import {
+  BUBBLE_COUNT,
+  CHORUS_EVERY_SEC,
   CROSS_GAP_SEC,
   CROSS_SEC,
   CROSS_X,
   Flavor,
+  FOOTPRINT_MAX,
+  PERCH_SEC,
   FOOTSTEP_AT_SEC,
   maxSpotTiltRad,
   PROP_COUNT,
@@ -1494,18 +1498,27 @@ describe('場面ごとの味つけ（2026-09-07。人間が決めた「スペシ
     }
   });
 
-  it('ゆれる飾りは、必ず隠れ場所より奥にある（不変条件3 を壊せない位置）', () => {
+  it.each(ALL_SCENES)('%s: 味つけが足すものは、必ず隠れ場所より奥にある', (id) => {
     // 手前に置くと、隠れている動物を覆って「見えている」を壊せてしまう。
-    // **奥にあれば原理的に起きない。** 位置で保証する
-    for (const scene of SCENES) {
-      const spots = new SpotSystem(scene.spots, scene.mode);
-      const flavor = new Flavor(spots.runtimes, scene.flavor, { seed: 1 });
-      const minSpotZ = Math.min(...scene.spots.map((s) => s.position[2]));
+    // **奥にあれば原理的に起きない。** 位置で保証する。
+    // **作った直後だけでなく、走らせたあとも見る**（あぶく・足あと・花と卵は
+    // あとから足されるので、作った直後だけ見ていても意味がない）
+    const scene = findScene(id);
+    const { spots, flavor, advance } = sceneRig(id);
+    const minSpotZ = Math.min(...scene.spots.map((s) => s.position[2]));
+
+    const check = (when: string) => {
       for (const child of flavor.group.children) {
-        expect(child.position.z, `${scene.id} の飾りが隠れ場所より手前`).toBeLessThan(minSpotZ);
+        expect(child.position.z, `${id} の飾りが隠れ場所より手前（${when}）`).toBeLessThan(minSpotZ);
       }
-      flavor.dispose();
-    }
+    };
+    check('作った直後');
+    // 出して引っ込めるところまで回す（花・卵が残る）
+    for (const spot of spots.runtimes) spots.tap(spot);
+    advance(6);
+    check('1周したあと');
+    advance(20);
+    check('しばらく置いたあと');
   });
 
   it('風は左から右へ渡る（いっせいに傾かない）', () => {
@@ -1735,6 +1748,196 @@ describe('§6-1 毎回変わるもの（速さ・大きさ・声）', () => {
       expect(spot.voiceVar).toBeGreaterThanOrEqual(1 - VOICE_VAR);
       expect(spot.voiceVar).toBeLessThanOrEqual(1 + VOICE_VAR);
       for (let f = 0; f < 60 * 4; f++) spots.update(DT);
+    }
+  });
+});
+
+describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言って足した）', () => {
+  it('横切るものは、ときどき隠れ場所にとまって、そこを揺らして教える', () => {
+    const { spots } = sceneRig('soto');
+    const flavor = new Flavor(
+      spots.runtimes,
+      { crossing: 'butterfly', crossingLands: true },
+      { seed: 5 }
+    );
+
+    // **1回の抽選に頼らない。** とまるのは 2回に1回なので、
+    // 何往復かぶん回して「いつかは必ずとまる」ことを見る
+    let sawPerch = false;
+    let shookAtPerch = false;
+    for (let f = 0; f < Math.round(60 * (CROSS_SEC + PERCH_SEC + CROSS_GAP_SEC) * 8); f++) {
+      flavor.update(DT);
+      const perched = flavor.getPerchedSpotId();
+      if (!perched) continue;
+      sawPerch = true;
+      // とまった場所が揺れている（§4-2 のヒントと同じ「ここだよ」）
+      const spot = spots.runtimes.find((s) => s.config.id === perched);
+      if (spot && spot.callShake > 0) shookAtPerch = true;
+    }
+    expect(sawPerch).toBe(true);
+    expect(shookAtPerch).toBe(true);
+    expect(flavor.getLandingCount()).toBeGreaterThanOrEqual(1);
+    // **1回の横断でとまるのは1回まで。** 行き先を消し忘れると何十回もとまり直す
+    expect(flavor.getLandingCount()).toBeLessThanOrEqual(flavor.getCrossingCount());
+    flavor.dispose();
+  });
+
+  it('とまっても、最後は必ず画面の外へ抜ける（止まったままにならない）', () => {
+    const { spots } = sceneRig('soto');
+    const flavor = new Flavor(
+      spots.runtimes,
+      { crossing: 'butterfly', crossingLands: true },
+      { seed: 5 }
+    );
+    const obj = flavor.group.children[0];
+
+    let leftScreen = 0;
+    for (let f = 0; f < Math.round((60 * (CROSS_SEC + PERCH_SEC + CROSS_GAP_SEC)) * 4); f++) {
+      flavor.update(DT);
+      if (!obj.visible) leftScreen++;
+    }
+    // 渡り終えて消えるフレームがある＝とまりっぱなしになっていない
+    expect(leftScreen).toBeGreaterThan(0);
+    flavor.dispose();
+  });
+
+  it('あぶくは上がり続け、押すと割れる', () => {
+    const { spots } = sceneRig('umi');
+    const flavor = new Flavor(spots.runtimes, { bubbles: true }, { seed: 9 });
+    expect(flavor.getBubbles().count).toBe(BUBBLE_COUNT);
+
+    for (let f = 0; f < 120; f++) flavor.update(DT);
+    const before = flavor.group.children.map((c) => c.position.y);
+    for (let f = 0; f < 120; f++) flavor.update(DT);
+    const after = flavor.group.children.map((c) => c.position.y);
+    // **上がっている**（1つでも上に動いていればよい。上端で戻るものがあるため）
+    expect(after.some((y, i) => y > before[i])).toBe(true);
+
+    // まん前を押したら割れる。**当たり判定は画面座標**（§7-3）
+    const target = flavor.group.children[0];
+    const tester = {
+      project: () => true,
+      distancePx: (world: THREE.Vector3) => (world.equals(target.position) ? 0 : 999),
+    };
+    expect(flavor.tap(100, 100, tester)).toBe(true);
+    expect(flavor.getBubbles().popped).toBe(1);
+    expect(target.visible).toBe(false);
+    flavor.dispose();
+  });
+
+  it('あぶきを押しても、隠れ場所のタップは1回も減らない（不変条件1）', () => {
+    // あぶくが当たり判定を横取りしたら、「押したのに動物が出ない」ができる
+    const { spots, flavor } = sceneRig('umi');
+    const tester = fakeTester();
+    let responses = 0;
+    for (const spot of spots.runtimes) {
+      const p = { x: 0, y: 0 };
+      tester.project(spot.worldPosition, p);
+      flavor.tap(p.x, p.y, tester);
+      const hit = spots.pick(p.x, p.y, tester);
+      expect(hit, spot.config.id).not.toBeNull();
+      if (hit) responses += spots.tap(hit) ? 1 : 0;
+    }
+    expect(responses).toBe(spots.runtimes.length);
+  });
+
+  it('みんなで鳴くのは、全部が隠れているときだけ', () => {
+    const { spots } = sceneRig('noujou');
+    const flavor = new Flavor(spots.runtimes, { chorus: true }, { seed: 4 });
+
+    // 1箇所を出したまま待つ → 鳴きはじめない
+    spots.tap(spots.runtimes[0]);
+    for (let f = 0; f < 60 * 2; f++) {
+      spots.update(DT);
+      flavor.update(DT);
+    }
+    expect(spots.runtimes[0].state).not.toBe('hidden');
+    expect(flavor.getChorus().running).toBe(false);
+  });
+
+  it('みんなで鳴くとき、ふたは開けない（隠れている体が見えるため）', () => {
+    // **実測（2026-09-07）: のうじょうの わら は extraOpen 0.10 で体が見えた。**
+    // 開ける演出は空の隠れ場所にだけ許される（§4-6 / §4-5 の到着）
+    const { spots } = sceneRig('noujou');
+    const flavor = new Flavor(spots.runtimes, { chorus: true }, { seed: 4 });
+
+    const calls: string[] = [];
+    flavor.onCall((spot) => calls.push(spot.config.id));
+
+    let maxOpen = 0;
+    for (let f = 0; f < Math.round(60 * CHORUS_EVERY_SEC * 1.5); f++) {
+      spots.update(DT);
+      flavor.update(DT);
+      for (const s of spots.runtimes) maxOpen = Math.max(maxOpen, s.extraOpen);
+    }
+    expect(flavor.getChorus().runs).toBeGreaterThanOrEqual(1);
+    // 全員が1回ずつ鳴く
+    expect(calls).toHaveLength(spots.runtimes.length);
+    expect(new Set(calls).size).toBe(spots.runtimes.length);
+    expect(maxOpen).toBe(0);
+    flavor.dispose();
+  });
+
+  it('足あとは、跳ねるたびに増えて、放っておくと消える', () => {
+    const { spots } = sceneRig('nohara');
+    const flavor = new Flavor(spots.runtimes, { footprints: true }, { seed: 2 });
+
+    for (let i = 0; i < 4; i++) flavor.dropFootprint(i * 0.5);
+    expect(flavor.getFootprintCount()).toBe(4);
+
+    for (let f = 0; f < 60 * 5; f++) flavor.update(DT);
+    expect(flavor.getFootprintCount()).toBe(0);
+    expect(flavor.group.children).toHaveLength(0);
+    flavor.dispose();
+  });
+
+  it('足あとは増え続けない（跳ね続けても上限で止まる）', () => {
+    const { spots } = sceneRig('nohara');
+    const flavor = new Flavor(spots.runtimes, { footprints: true }, { seed: 2 });
+    for (let i = 0; i < 200; i++) flavor.dropFootprint(i * 0.01);
+    expect(flavor.getFootprintCount()).toBeLessThanOrEqual(FOOTPRINT_MAX);
+    flavor.dispose();
+  });
+
+  it('花や卵は、引っ込んだあとに残って、次に押すと消える', () => {
+    const { spots } = sceneRig('noujou');
+    const flavor = new Flavor(spots.runtimes, { leftover: 'egg' }, { seed: 8 });
+    const spot = spots.runtimes[0];
+
+    // 出して、引っ込みきるまで回す
+    let guard = 0;
+    while (flavor.getLeftovers().total === 0 && guard++ < 40) {
+      spots.tap(spot);
+      for (let f = 0; f < 60 * 4; f++) {
+        spots.update(DT);
+        flavor.update(DT);
+      }
+    }
+    expect(flavor.getLeftovers().total).toBeGreaterThanOrEqual(1);
+    expect(flavor.getLeftovers().alive).toBeGreaterThanOrEqual(1);
+
+    // 押したら消える。**次の「ばあ」の邪魔をしない**
+    for (const s of spots.runtimes) spots.tap(s);
+    for (let f = 0; f < 30; f++) {
+      spots.update(DT);
+      flavor.update(DT);
+    }
+    expect(flavor.getLeftovers().alive).toBe(0);
+    flavor.dispose();
+  });
+
+  it('味つけを足しても、出きった動物はカメラから見えている（2026-09-06 の再発防止）', () => {
+    // 花・卵・あぶく・足あとを、動物の手前に置いてしまうと、
+    // 「ねことうしの隠れ場所が開いた時に画像と被って見えなくなっている」が再発する
+    for (const id of HIDEOUT_SCENES) {
+      const { spots, animals, advance } = sceneRig(id);
+      advance(1);
+      for (const spot of spots.runtimes) spots.tap(spot);
+      advance(PEAK_AT_SEC + 0.3);
+      for (const spot of spots.runtimes) {
+        const e = animals.getExposure(spot);
+        expect(e, `${id}/${spot.config.id}`).not.toBeNull();
+      }
     }
   });
 });
