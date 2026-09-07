@@ -47,10 +47,36 @@ async function convertInPage({ dataUrl, maxH, quality }) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, w, h);
+  // 粗いアルファのマス目（**テストが「絵のあるところ」だけを見るために使う**）。
+  // 1マスに1画素でも不透明があれば 1。**取りこぼしを作らない側に倒す**
+  const N = 24;
+  const data = ctx.getImageData(0, 0, w, h).data;
+  const mask = [];
+  for (let r = 0; r < N; r++) {
+    let row = '';
+    for (let c = 0; c < N; c++) {
+      const x0 = Math.floor((c * w) / N);
+      const x1 = Math.max(x0 + 1, Math.floor(((c + 1) * w) / N));
+      const y0 = Math.floor((r * h) / N);
+      const y1 = Math.max(y0 + 1, Math.floor(((r + 1) * h) / N));
+      let on = 0;
+      for (let y = y0; y < y1 && !on; y++) {
+        for (let x = x0; x < x1; x++) {
+          if (data[(y * w + x) * 4 + 3] > 128) {
+            on = 1;
+            break;
+          }
+        }
+      }
+      row += on ? '1' : '0';
+    }
+    mask.push(row);
+  }
+
   const url = canvas.toDataURL('image/webp', quality);
   // **WebP に落ちなかったら PNG が返る。** 黙って PNG を書くと、
   // 拡張子と中身が食い違って後で静かに壊れる（参照画像で実際に起きた）
-  return { url, w, h, isWebp: url.startsWith('data:image/webp') };
+  return { url, w, h, mask, isWebp: url.startsWith('data:image/webp') };
 }
 
 async function main() {
@@ -94,7 +120,7 @@ async function main() {
       const bytes = Buffer.from(r.url.slice(r.url.indexOf(',') + 1), 'base64');
       await writeFile(resolve(OUT_DIR, `${id}.webp`), bytes);
       total += bytes.length;
-      sizes.push([id, r.w, r.h]);
+      sizes.push([id, r.w, r.h, r.mask]);
       console.log(`${id.padEnd(12)} ${r.w}x${r.h}  ${(bytes.length / 1024).toFixed(0)}KB`);
     }
     console.log(`\n${targets.length} 体 / 合計 ${(total / 1024).toFixed(0)}KB → public/animals/`);
@@ -105,6 +131,9 @@ async function main() {
     // 「ヒントの位置を設定し忘れて 25体すべてが不変条件3 違反」を見逃した
     if (only.length === 0) {
       const lines = sizes.map(([id, w, h]) => `  ${id}: [${w}, ${h}],`).join('\n');
+      const maskLines = sizes
+        .map(([id, , , mask]) => `  ${id}: [\n${mask.map((r) => `    '${r}',`).join('\n')}\n  ],`)
+        .join('\n');
       const file = `/**
  * 絵の大きさ（**自動生成。手で書き換えないこと**）
  *
@@ -114,6 +143,20 @@ async function main() {
  */
 export const CUTOUT_SIZES: Readonly<Record<string, readonly [number, number]>> = {
 ${lines}
+};
+
+/**
+ * 絵の粗いアルファ（24×24。行は絵の上から順、'1' が不透明）。
+ *
+ * **テストが「絵のあるところ」だけを見るために使う。**
+ * 板は四角いので、レイを飛ばすと**透明な角にも当たる**。
+ * それを「体が見えている」と数えると、実際には見えていないのに落ちる
+ * （2026-09-07 に、のうじょうの こや で下端 7点がそうだった）。
+ * 1マスに1画素でも不透明があれば '1' にしてあるので、
+ * **見えているものを見逃す側には倒れない**。
+ */
+export const CUTOUT_MASKS: Readonly<Record<string, readonly string[]>> = {
+${maskLines}
 };
 `;
       await writeFile(resolve(ROOT, 'src/data/cutoutSizes.ts'), file, 'utf8');

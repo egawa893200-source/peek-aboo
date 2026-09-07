@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { ANIMALS } from '../../src/data/animals';
-import { CUTOUT_SIZES } from '../../src/data/cutoutSizes';
+import { CUTOUT_MASKS, CUTOUT_SIZES } from '../../src/data/cutoutSizes';
 import type { SceneConfig } from '../../src/types';
 import { SpotShuffle, SWAP_CHANCE } from '../../src/peekaboo/SpotShuffle';
 import {
@@ -113,7 +113,7 @@ interface Rig {
 }
 
 function rig(): Rig {
-  const spots = new SpotSystem(OUCHI.spots);
+  const spots = new SpotSystem(OUCHI.spots, undefined, 12345);
   const animals = new AnimalSystem(spots, false);
   const camera = new THREE.PerspectiveCamera(66, 0.45, 0.05, 60);
   camera.position.set(0, 0.3, 7.2);
@@ -192,7 +192,9 @@ function fakeCutouts(scene: SceneConfig): Map<string, THREE.Texture> {
 
 function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
   const scene = findScene(sceneId);
-  const spots = new SpotSystem(scene.spots, scene.mode);
+  // **§6-1 のばらつきの種を固定する。** 既定は `Date.now()` なので、
+  // 固定しないと「その回の乱数しだいで落ちる」テストができる（実際に踏んだ）
+  const spots = new SpotSystem(scene.spots, scene.mode, seed);
   const animals = new AnimalSystem(spots, false, useCutouts ? fakeCutouts(scene) : new Map());
 
   let chase: ChaseSystem | null = null;
@@ -210,6 +212,14 @@ function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
   // ここを繋がないと、隠れ場所を傾ける演出を足しても
   // 「隠れているのに体が見えている」のテストが素通りする
   const flavor = new Flavor(spots.runtimes, scene.flavor, { seed });
+  // **`SceneRoot` と同じ配線。** ここを繋がないと、隠れ場所が
+  // たまご／つぼみ に入れ替わらないまま検査してしまう
+  flavor.onLeftover((spot, kind) => {
+    if (spots.setShape(spot, kind)) animals.reanchor(spot);
+  });
+  flavor.onLeftoverEnd((spot) => {
+    if (spots.setShape(spot, spot.config.kind)) animals.reanchor(spot);
+  });
 
   const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
   camera.position.set(0, 0.3, 7.2);
@@ -262,7 +272,7 @@ interface ChaseRig extends Rig {
  * （CLAUDE.md「遊びの乱数は独立したシードから引く」）。
  */
 function chaseRig(seed = 12345): ChaseRig {
-  const spots = new SpotSystem(NOHARA.spots, NOHARA.mode);
+  const spots = new SpotSystem(NOHARA.spots, NOHARA.mode, seed);
   const animals = new AnimalSystem(spots, false);
   const start = spots.runtimes[0];
   const runner = animals.spawn(start, NOHARA.runner!);
@@ -307,6 +317,69 @@ function isDescendantOf(obj: THREE.Object3D, root: THREE.Object3D): boolean {
     if (o === root) return true;
   }
   return false;
+}
+
+/**
+ * 絵の、その位置に色があるか（`uv` は板の 0..1）。
+ *
+ * **板は四角いので、レイは透明な角にも当たる。**
+ * それを「体が見えている」と数えると、実際には見えていないのに落ちる
+ * （2026-09-07 に、のうじょうの こや で下端 7点がそうだった）。
+ * マスは 1画素でも不透明なら '1' なので、**見えているものは見逃さない**。
+ */
+function isOpaqueAt(animalId: string, uv: { x: number; y: number }): boolean {
+  const mask = CUTOUT_MASKS[animalId];
+  if (!mask) return true; // マスが無ければ、見えていると見なす（厳しい側）
+  const n = mask.length;
+  const col = Math.min(n - 1, Math.max(0, Math.floor(uv.x * n)));
+  // `uv.y` は板の下が 0。マスの行は絵の上から
+  const row = Math.min(n - 1, Math.max(0, Math.floor((1 - uv.y) * n)));
+  return mask[row][col] === '1';
+}
+
+/**
+ * 出ている動物が、カメラから見えている割合。
+ *
+ * **見かけの矩形に格子を張って、いちばん手前が体かどうかで数える。**
+ * 高さだけ見ていると気づけない（2026-09-06 の「絵と被って見えなくなる」）。
+ */
+function visibleRatio(
+  slot: { built: { group: THREE.Object3D; hint: THREE.Object3D } },
+  spots: SpotSystem,
+  camera: THREE.Camera,
+  ray: THREE.Raycaster,
+  box: THREE.Box3,
+  target: THREE.Vector3,
+  dir: THREE.Vector3,
+  cols: number,
+  rows: number
+): number {
+  box.makeEmpty();
+  for (const child of slot.built.group.children) {
+    if (child === slot.built.hint) continue;
+    box.expandByObject(child);
+  }
+  const camPos = new THREE.Vector3();
+  camera.getWorldPosition(camPos);
+
+  let seen = 0;
+  let total = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      target.set(
+        box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / cols,
+        box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / rows,
+        (box.min.z + box.max.z) / 2
+      );
+      dir.subVectors(target, camPos).normalize();
+      ray.set(camPos, dir);
+      const hits = ray.intersectObject(spots.group, true);
+      if (hits.length === 0) continue;
+      total++;
+      if (isDescendantOf(hits[0].object, slot.built.group)) seen++;
+    }
+  }
+  return total === 0 ? 0 : seen / total;
 }
 
 describe('不変条件1 — 無反応を作らない', () => {
@@ -924,6 +997,101 @@ describe('§3-2 当たり判定どうしが重ならない', () => {
   });
 });
 
+describe('1体ずつしか出さない（2026-09-07。人間が決めた）', () => {
+  // ==========================================================================
+  // 1歳半は画面を連打する。4体が同時に出ていると「自分が押したから出た」が
+  // 読めなくなるので、**誰かが出ているあいだは新しく出さない**。
+  //
+  // **無反応にはしない。** ぷるっ（`shake`）・波紋・音は必ず返るので、
+  // 不変条件1（無反応を作らない）と不変条件2（どの瞬間に押しても反応する）は
+  // これまでどおり成り立つ。§4-1 の「押したら出る」だけを、人間の判断で
+  // 「1体ずつ」に変えている。
+  // ==========================================================================
+
+  it.each(HIDEOUT_SCENES)('%s: まとめて押しても、出るのは1体だけ', (id) => {
+    const { spots, advance } = sceneRig(id);
+    for (const spot of spots.runtimes) spots.tap(spot);
+    advance(PEAK_AT_SEC + DT);
+
+    const out = spots.runtimes.filter((s) => s.state !== 'hidden');
+    expect(out.map((s) => s.config.id).join(','), id).toHaveLength(out[0].config.id.length);
+    expect(out).toHaveLength(1);
+  });
+
+  it.each(HIDEOUT_SCENES)('%s: 順番待ちでも、反応（ぷるっ）は必ず返る（不変条件1・2）', (id) => {
+    const { spots, advance } = sceneRig(id);
+    const before = spots.getResponseCount();
+    for (const spot of spots.runtimes) {
+      expect(spots.tap(spot), `${id}/${spot.config.id}`).toBe(true);
+      expect(spot.shake, `${id}/${spot.config.id}`).toBeGreaterThan(0);
+    }
+    expect(spots.getResponseCount() - before).toBe(spots.runtimes.length);
+    // 出せなかったぶんは数えてある（実測用）
+    expect(spots.getBlockedCount()).toBe(spots.runtimes.length - 1);
+    void advance;
+  });
+
+  it('連打しても、順番待ちのあいだは1体しか出ない', () => {
+    // **毎フレーム全部を押す。** みずのなかの貝と同じ壊し方をしてみる
+    const { spots, advance } = sceneRig('ouchi');
+    let maxOut = 0;
+    advance(6, () => {
+      for (const spot of spots.runtimes) spots.tap(spot);
+      maxOut = Math.max(maxOut, spots.runtimes.filter((s) => s.state !== 'hidden').length);
+    });
+    expect(maxOut).toBe(1);
+  });
+
+  it('その子が隠れきったら、次の子が出られる', () => {
+    const { spots, advance } = sceneRig('ouchi');
+    const [a, b] = spots.runtimes;
+
+    spots.tap(a);
+    advance(PEAK_AT_SEC + DT);
+    expect(a.state).toBe('out');
+
+    // 隠れきる前は出せない
+    spots.tap(b);
+    expect(b.state).toBe('hidden');
+
+    advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.2);
+    expect(a.state).toBe('hidden');
+
+    // 隠れきったら出せる
+    spots.tap(b);
+    advance(PEAK_AT_SEC + DT);
+    expect(b.state).toBe('out');
+  });
+
+  it('同じ子の呼び戻し（引っ込み中のタップ）は、これまでどおり通る（不変条件2）', () => {
+    const { spots, advance } = sceneRig('ouchi');
+    const a = spots.runtimes[0];
+    spots.tap(a);
+    advance(PEAK_AT_SEC + OUT_IDLE_SEC + 0.1);
+    expect(a.state).toBe('hiding');
+
+    spots.tap(a);
+    expect(a.state).toBe('appearing');
+    advance(0.5);
+    expect(a.state).toBe('out');
+    expect(a.reveal).toBe(1);
+  });
+
+  it('空の隠れ場所は、順番待ちに関係なく反応する（不変条件3b）', () => {
+    // モードBの空きは「中身が居ない」ので、そもそも出さない。
+    // 順番待ちの判定に巻き込まれていないことを見る
+    const { spots, empty, advance } = chaseRig(7);
+    const answer = spots.runtimes.find((s) => s.occupied)!;
+    spots.tap(answer);
+    advance(PEAK_AT_SEC + DT);
+
+    const miss = spots.runtimes.find((s) => !s.occupied)!;
+    const before = empty.getStartedCount();
+    expect(spots.tap(miss)).toBe(true);
+    expect(empty.getStartedCount()).toBe(before + 1);
+  });
+});
+
 describe('§4-5 移動モード', () => {
   /** うさぎを n 周まわして、行き先の履歴を返す */
   function runLaps(rigging: ReturnType<typeof chaseRig>, laps: number): readonly string[] {
@@ -1189,12 +1357,18 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
   });
 
   it.each(HIDEOUT_SCENES)('%s: 押すと必ず out まで到達する（§4-1）', (id) => {
+    // **1体ずつ押す**（2026-09-07 に人間が決めた「1体ずつしか出さない」）。
+    // まとめて押すと、2体目から先は順番待ちになるのが正しい姿。
+    // それは下の「別の子が出ているあいだは…」で見る
     const { spots, advance } = sceneRig(id);
-    for (const spot of spots.runtimes) spots.tap(spot);
-    advance(PEAK_AT_SEC + DT);
     for (const spot of spots.runtimes) {
+      spots.tap(spot);
+      advance(PEAK_AT_SEC + DT);
       expect(spot.state, `${id}/${spot.config.id}`).toBe('out');
       expect(spot.reveal, `${id}/${spot.config.id}`).toBe(1);
+      // 次の子のために、引っ込みきるまで待つ
+      advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.2);
+      expect(spot.state, `${id}/${spot.config.id}`).toBe('hidden');
     }
   });
 
@@ -1220,11 +1394,19 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
     }
   });
 
-  it.each(ALL_SCENES)('%s: 隠れているあいだ、体はどこからも覗けない', (id) => {
+  it.each([
+    ...ALL_SCENES.map((id) => [id, false] as const),
+    ...ALL_SCENES.map((id) => [id, true] as const),
+  ])('%s（絵=%s）: 隠れているあいだ、体はどこからも覗けない', (id, useCutouts) => {
+    // **絵を貼った版（道A）も見ること。**
+    // 手続き生成だけ見ていたら、うみ の すいめん で
+    // **クマノミが丸ごと画面に出ていた**（2026-09-07 に実機で発覚）。
+    // 板は z = animalZ + 0.26 に立つので、手続き生成の体（z = -0.4〜0.0）より
+    // 前に出る。前板がその手前に無い隠れ場所では、そのまま見えてしまう。
     // 格子は隙間の幅より細かく。7×9 では 0.05 幅の隙間をすり抜けた
     const COLS = 15;
     const ROWS = 15;
-    const { spots, animals, camera, advance } = sceneRig(id);
+    const { spots, animals, camera, advance } = sceneRig(id, 12345, useCutouts);
     advance(0.5);
 
     const ray = new THREE.Raycaster();
@@ -1258,13 +1440,16 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
           if (hits.length === 0) continue;
           const first = hits[0].object;
           if (isDescendantOf(first, slot.built.group) && !isDescendantOf(first, slot.built.hint)) {
+            // 絵を貼った動物は、板の透明なところに当たっても見えていない
+            const uv = hits[0].uv;
+            if (useCutouts && uv && !isOpaqueAt(slot.config.id, uv)) continue;
             leaks.push(`(${c},${r})`);
           }
         }
       }
       expect(
         leaks.length,
-        `${id}/${spot.config.id}: 隠れているのに体が ${leaks.length}/${COLS * ROWS} 点で見えている`
+        `${id}/${spot.config.id}（絵=${useCutouts}）: 隠れているのに体が ${leaks.length}/${COLS * ROWS} 点で見えている ${leaks.join(' ')}`
       ).toBe(0);
     }
   });
@@ -1291,10 +1476,6 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
 
       const { spots, animals, camera, advance } = sceneRig(id, 12345, useCutouts);
       advance(0.5);
-      for (const spot of spots.runtimes) spots.tap(spot);
-      // 登場（0.15 + 0.35）＋ 余白
-      advance(0.8);
-
       const ray = new THREE.Raycaster();
       const target = new THREE.Vector3();
       const dir = new THREE.Vector3();
@@ -1303,36 +1484,28 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
       for (const spot of spots.runtimes) {
         const slot = animals.getSlot(spot.config.id);
         if (!slot) continue;
-        spots.group.updateWorldMatrix(true, true);
-
-        box.makeEmpty();
-        for (const child of slot.built.group.children) {
-          if (child === slot.built.hint) continue;
-          box.expandByObject(child);
-        }
-
-        let seen = 0;
-        let total = 0;
-        for (let r = 0; r < ROWS; r++) {
-          for (let c = 0; c < COLS; c++) {
-            target.set(
-              box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / COLS,
-              box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / ROWS,
-              (box.min.z + box.max.z) / 2
-            );
-            dir.subVectors(target, camera.position).normalize();
-            ray.set(camera.position, dir);
-            const hits = ray.intersectObject(spots.group, true);
-            if (hits.length === 0) continue;
-            total++;
-            if (isDescendantOf(hits[0].object, slot.built.group)) seen++;
+        // **1体ずつ出す**（2026-09-07 の「1体ずつしか出さない」）。
+        // まとめて押すと2体目から順番待ちになり、隠れたまま測ってしまう
+        spots.tap(spot);
+        advance(PEAK_AT_SEC + DT);
+        // **出ているあいだの、いちばん見えていない瞬間で判定する。**
+        // 出たあとの癖（§6-2）で位置が動くので、1点だけ見ても足りない
+        let worst = 1;
+        let worstAt = 0;
+        for (let step = 0; step < 8; step++) {
+          spots.group.updateWorldMatrix(true, true);
+          const r = visibleRatio(slot, spots, camera, ray, box, target, dir, COLS, ROWS);
+          if (r < worst) {
+            worst = r;
+            worstAt = step;
           }
+          advance(0.18);
         }
-        const ratio = total === 0 ? 0 : seen / total;
         expect(
-          ratio,
-          `${id}/${spot.config.id}: 出きったのに体が ${(ratio * 100).toFixed(0)}% しか見えていない`
+          worst,
+          `${id}/${spot.config.id}: 出ているあいだ、体が ${(worst * 100).toFixed(0)}% しか見えていない瞬間がある（${(worstAt * 0.18).toFixed(2)}s）`
         ).toBeGreaterThanOrEqual(NEED);
+        advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.2);
       }
     }
   );
@@ -1824,7 +1997,15 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
     };
     expect(flavor.tap(100, 100, tester)).toBe(true);
     expect(flavor.getBubbles().popped).toBe(1);
+    // **ふくらんでから消える。** ただ消すと「割れた」ではなく「消えた」に見える
+    const scaleBefore = target.scale.x;
+    for (let f = 0; f < 6; f++) flavor.update(DT);
+    expect(target.visible).toBe(true);
+    expect(target.scale.x).toBeGreaterThan(scaleBefore);
+    for (let f = 0; f < 20; f++) flavor.update(DT);
     expect(target.visible).toBe(false);
+    // 同じあぶくを続けて割れない（消えているあいだは当たらない）
+    expect(flavor.tap(100, 100, tester)).toBe(false);
     flavor.dispose();
   });
 
@@ -1885,47 +2066,212 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
     const { spots } = sceneRig('nohara');
     const flavor = new Flavor(spots.runtimes, { footprints: true }, { seed: 2 });
 
-    for (let i = 0; i < 4; i++) flavor.dropFootprint(i * 0.5);
+    for (let i = 0; i < 4; i++) flavor.dropFootprint(i * 0.5, 0);
     expect(flavor.getFootprintCount()).toBe(4);
+    // **隠れ場所より手前に置く**（奥だと くさむら に隠れて見えない）
+    expect(flavor.frontGroup.children).toHaveLength(4);
+    for (const c of flavor.frontGroup.children) expect(c.position.z).toBeGreaterThan(0);
 
     for (let f = 0; f < 60 * 5; f++) flavor.update(DT);
     expect(flavor.getFootprintCount()).toBe(0);
-    expect(flavor.group.children).toHaveLength(0);
+    expect(flavor.frontGroup.children).toHaveLength(0);
     flavor.dispose();
   });
 
   it('足あとは増え続けない（跳ね続けても上限で止まる）', () => {
     const { spots } = sceneRig('nohara');
     const flavor = new Flavor(spots.runtimes, { footprints: true }, { seed: 2 });
-    for (let i = 0; i < 200; i++) flavor.dropFootprint(i * 0.01);
+    for (let i = 0; i < 200; i++) flavor.dropFootprint(i * 0.01, 0);
     expect(flavor.getFootprintCount()).toBeLessThanOrEqual(FOOTPRINT_MAX);
     flavor.dispose();
   });
 
-  it('花や卵は、引っ込んだあとに残って、次に押すと消える', () => {
-    const { spots } = sceneRig('noujou');
-    const flavor = new Flavor(spots.runtimes, { leftover: 'egg' }, { seed: 8 });
+  it('たまご／つぼみは、隠れ場所そのものと入れ替わる（次の1回で戻る）', () => {
+    // ==========================================================================
+    // 2026-09-07 に人間が決めた形。
+    // 「卵が小さく残っているが何にも意味がない。卵になった場合は
+    //   隠れ場所ごと無くして卵を新たな隠れ場所として設定するほうがいい」
+    // ==========================================================================
+    const { spots, animals, advance } = sceneRig('noujou');
     const spot = spots.runtimes[0];
 
-    // 出して、引っ込みきるまで回す
+    // たまごになるまで、出して引っ込めるを繰り返す
     let guard = 0;
-    while (flavor.getLeftovers().total === 0 && guard++ < 40) {
+    while (spot.shapeKind === spot.config.kind && guard++ < 30) {
       spots.tap(spot);
-      for (let f = 0; f < 60 * 4; f++) {
-        spots.update(DT);
-        flavor.update(DT);
-      }
+      advance(PEAK_AT_SEC + OUT_IDLE_SEC + HIDE_DUR_SEC + 0.3);
     }
-    expect(flavor.getLeftovers().total).toBeGreaterThanOrEqual(1);
-    expect(flavor.getLeftovers().alive).toBeGreaterThanOrEqual(1);
+    expect(spot.shapeKind, 'たまごに入れ替わらなかった').toBe('egg');
+    // **当たり判定は動かない**（`worldPosition` 基準）
+    expect(spot.worldPosition.toArray()).toEqual(spot.config.position);
 
-    // 押したら消える。**次の「ばあ」の邪魔をしない**
-    for (const s of spots.runtimes) spots.tap(s);
-    for (let f = 0; f < 30; f++) {
+    // たまごを押したら、いつもどおり動物が出る（§4-1）
+    spots.tap(spot);
+    advance(PEAK_AT_SEC + DT);
+    expect(spot.state).toBe('out');
+    expect(spot.reveal).toBe(1);
+    expect(animals.getSlot(spot.config.id)).not.toBeNull();
+
+    // 1回ぶんで終わり。**場面じゅうが たまご だらけにならない**
+    advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.3);
+    expect(spot.shapeKind).toBe(spot.config.kind);
+  });
+
+  it('たまごに入れ替わっても、隠れている体は覗けない（不変条件3）', () => {
+    const kind = 'egg' as const;
+    // 新しい形は、ふつうの隠れ場所と同じ検査を通ること。
+    // **格子は隙間の幅より細かく**（7×9 では 0.05 幅の隙間をすり抜けた）
+    const COLS = 15;
+    const ROWS = 15;
+    const { spots, animals, camera, advance } = sceneRig('noujou');
+    advance(0.5);
+
+    const ray = new THREE.Raycaster();
+    const target = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const box = new THREE.Box3();
+
+    for (const spot of spots.runtimes) {
+      expect(spots.setShape(spot, kind), spot.config.id).toBe(true);
+      animals.reanchor(spot);
+      advance(0.3);
+
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+      spots.group.updateWorldMatrix(true, true);
+      box.makeEmpty();
+      for (const child of slot.built.group.children) {
+        if (child === slot.built.hint) continue;
+        box.expandByObject(child);
+      }
+
+      let leaks = 0;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          target.set(
+            box.min.x + ((box.max.x - box.min.x) * (c + 0.5)) / COLS,
+            box.min.y + ((box.max.y - box.min.y) * (r + 0.5)) / ROWS,
+            box.max.z
+          );
+          dir.subVectors(target, camera.position).normalize();
+          ray.set(camera.position, dir);
+          ray.far = Infinity;
+          const hits = ray.intersectObject(spots.group, true);
+          if (hits.length === 0) continue;
+          if (isDescendantOf(hits[0].object, slot.built.group) && !isDescendantOf(hits[0].object, slot.built.hint)) {
+            leaks++;
+          }
+        }
+      }
+      expect(leaks, `${kind}/${spot.config.id}: 隠れているのに体が ${leaks}/${COLS * ROWS} 点で見えている`).toBe(0);
+    }
+  });
+
+  it('たまごに入れ替わっても、出きった体はカメラから見えている', () => {
+    const kind = 'egg' as const;
+    const COLS = 9;
+    const ROWS = 9;
+    const NEED = 0.55;
+    const { spots, animals, camera, advance } = sceneRig('noujou');
+    advance(0.5);
+
+    const ray = new THREE.Raycaster();
+    const target = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const box = new THREE.Box3();
+
+    for (const spot of spots.runtimes) {
+      expect(spots.setShape(spot, kind), spot.config.id).toBe(true);
+      animals.reanchor(spot);
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+
+      spots.tap(spot);
+      advance(PEAK_AT_SEC + DT);
+      let worst = 1;
+      for (let step = 0; step < 6; step++) {
+        spots.group.updateWorldMatrix(true, true);
+        worst = Math.min(worst, visibleRatio(slot, spots, camera, ray, box, target, dir, COLS, ROWS));
+        advance(0.18);
+      }
+      expect(
+        worst,
+        `${kind}/${spot.config.id}: 出ているあいだ、体が ${(worst * 100).toFixed(0)}% しか見えていない瞬間がある`
+      ).toBeGreaterThanOrEqual(NEED);
+      advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.3);
+    }
+  });
+
+  it('影は、隠れているあいだしか出ない（出てきた動物にかぶらない）', () => {
+    // ==========================================================================
+    // **影だけは隠れ場所の手前に置く。** ふたに映る影なので、奥だと見えない。
+    // 手前に置いてよい理由は位置ではなく**時間**で、
+    // 「隠れているあいだしか出さない」がその保証そのもの。ここで見張る。
+    // ==========================================================================
+    const { spots, animals } = sceneRig('ouchi');
+    const flavor = new Flavor(spots.runtimes, { shadowPeek: true }, { seed: 6 });
+
+    const shapes = new Map<string, THREE.Object3D>();
+    for (const spot of spots.runtimes) {
+      const id = animals.getSlot(spot.config.id)?.config.id;
+      if (id) shapes.set(id, new THREE.Object3D());
+    }
+    flavor.setShadowShapes(shapes, (spotId) => animals.getSlot(spotId)?.config.id ?? null);
+
+    let sawShadow = false;
+    let badFrames = 0;
+    for (let f = 0; f < Math.round(60 * SHADOW_EVERY_SEC * 4); f++) {
+      // ときどき押して、出ている最中を必ず通す
+      if (f % 240 === 0) spots.tap(spots.runtimes[(f / 240) % spots.runtimes.length]);
       spots.update(DT);
       flavor.update(DT);
+
+      const id = flavor.getShadowSpotId();
+      if (!id) continue;
+      sawShadow = true;
+      const spot = spots.runtimes.find((s) => s.config.id === id);
+      // 影が出ているのに、その場所が隠れていない＝動物にかぶっている
+      if (!spot || spot.state !== 'hidden') badFrames++;
     }
-    expect(flavor.getLeftovers().alive).toBe(0);
+    expect(sawShadow).toBe(true);
+    expect(flavor.getShadowCount()).toBeGreaterThanOrEqual(1);
+    expect(badFrames).toBe(0);
+    flavor.dispose();
+  });
+
+  it('影は、いまその隠れ場所に居る動物の輪郭になる（§6-2 で入れ替わっても）', () => {
+    // **丸ふたつで作らないこと。** 「雪だるまみたいで何の意味もない」と
+    // 実機で言われた（2026-09-07）。影が中身の輪郭でなければ、
+    // 期待も驚きも生まれない
+    const { spots, animals } = sceneRig('ouchi');
+    const flavor = new Flavor(spots.runtimes, { shadowPeek: true }, { seed: 6 });
+
+    const shapes = new Map<string, THREE.Object3D>();
+    const owner = new Map<THREE.Object3D, string>();
+    for (const spot of spots.runtimes) {
+      const id = animals.getSlot(spot.config.id)?.config.id;
+      if (!id) continue;
+      const obj = new THREE.Object3D();
+      shapes.set(id, obj);
+      owner.set(obj, id);
+    }
+    flavor.setShadowShapes(shapes, (spotId) => animals.getSlot(spotId)?.config.id ?? null);
+    // 影の見た目は、動物のぶんだけ手前の入れ物に入る
+    expect(flavor.frontGroup.children).toHaveLength(shapes.size);
+
+    let checked = 0;
+    for (let f = 0; f < Math.round(60 * SHADOW_EVERY_SEC * 3); f++) {
+      spots.update(DT);
+      flavor.update(DT);
+      const spotId = flavor.getShadowSpotId();
+      if (!spotId) continue;
+      const shown = flavor.frontGroup.children.filter((c) => c.visible);
+      expect(shown).toHaveLength(1);
+      // 出ている影は、その隠れ場所に**いま**居る動物のもの
+      expect(owner.get(shown[0])).toBe(animals.getSlot(spotId)?.config.id);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
     flavor.dispose();
   });
 
@@ -1964,6 +2310,34 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
     flavor.dispose();
   });
 
+  it('もう1匹が出ている場所を押したら、その子が引っ込む（空振りにしない）', () => {
+    // 実機で「うさぎがたまに顔を出すが、そこを押しても隠れている場所は
+    // 同じでよくわからない」と言われた（2026-09-07）。
+    // 押した先に居るのに §4-6 の空振りが出るのは、因果が合わない
+    const { spots, chase, advance } = chaseRig(31);
+    const flavor = new Flavor(spots.runtimes, { cameo: true }, { seed: 12 });
+    const dummy = new THREE.Object3D();
+    flavor.setCameo(dummy, 1, () => ({
+      busy: chase.isMoving(),
+      avoidSpotId: chase.getAnswerSpot().config.id,
+    }));
+
+    let tapped = false;
+    advance(CAMEO_EVERY_SEC * 3, () => {
+      flavor.update(DT);
+      const id = flavor.getCameoSpotId();
+      if (!id || tapped) return;
+      // 出ている場所を押す → 引っ込む
+      expect(flavor.tapCameo(id)).toBe(true);
+      tapped = true;
+    });
+    expect(tapped).toBe(true);
+    expect(flavor.getCameoTapCount()).toBe(1);
+    // 押していない場所では起きない
+    expect(flavor.tapCameo('kusa1')).toBe(false);
+    flavor.dispose();
+  });
+
   it('もう1匹は、出しっぱなしにならない（必ず引っ込む）', () => {
     const { spots, chase, advance } = chaseRig(31);
     const flavor = new Flavor(spots.runtimes, { cameo: true }, { seed: 12 });
@@ -1987,47 +2361,6 @@ describe('味つけ〈中〉〈大〉（2026-09-07。人間が「弱い」と言
     // 出ている時間は決められた長さを超えない（1フレームぶんの丸めを許す）
     expect(longest * DT).toBeLessThanOrEqual(CAMEO_TOTAL_SEC + DT);
     flavor.dispose();
-  });
-
-  it('影は、隠れているあいだしか出ない（出てきた動物にかぶらない）', () => {
-    // ==========================================================================
-    // **影だけは隠れ場所の手前に置く。** ふたに映る影なので、奥だと見えない。
-    // 手前に置いてよい理由は位置ではなく**時間**で、
-    // 「隠れているあいだしか出さない」がその保証そのもの。ここで見張る。
-    // ==========================================================================
-    const { spots } = sceneRig('ouchi');
-    const flavor = new Flavor(spots.runtimes, { shadowPeek: true }, { seed: 6 });
-
-    let sawShadow = false;
-    let badFrames = 0;
-    for (let f = 0; f < Math.round(60 * SHADOW_EVERY_SEC * 4); f++) {
-      // ときどき押して、出ている最中を必ず通す
-      if (f % 240 === 0) spots.tap(spots.runtimes[f % spots.runtimes.length]);
-      spots.update(DT);
-      flavor.update(DT);
-
-      const id = flavor.getShadowSpotId();
-      if (!id) continue;
-      sawShadow = true;
-      const spot = spots.runtimes.find((s) => s.config.id === id);
-      // 影が出ているのに、その場所が隠れていない＝動物にかぶっている
-      if (!spot || spot.state !== 'hidden') badFrames++;
-    }
-    expect(sawShadow).toBe(true);
-    expect(flavor.getShadowCount()).toBeGreaterThanOrEqual(1);
-    expect(badFrames).toBe(0);
-    flavor.dispose();
-  });
-
-  it('影は、誰が居るかまでは分からない形にする', () => {
-    // 輪郭で当てられると、開ける前に答えが出てしまって「ばあ」にならない。
-    // 丸ふたつだけ（頭と体）であることを、部品の数で見る
-    const { spots } = sceneRig('ouchi');
-    const flavor = new Flavor(spots.runtimes, { shadowPeek: true }, { seed: 6 });
-    expect(flavor.frontGroup.children).toHaveLength(1);
-    expect(flavor.frontGroup.children[0].children).toHaveLength(2);
-    flavor.dispose();
-    expect(flavor.frontGroup.children).toHaveLength(0);
   });
 
   it('味つけを足しても、出きった動物はカメラから見えている（2026-09-06 の再発防止）', () => {
@@ -2070,17 +2403,21 @@ describe('§6-2 出かたの癖（`AnimalConfig.style`）', () => {
   });
 
   it.each(HIDEOUT_SCENES)('%s: 癖があっても、出きったときの位置は同じ', (id) => {
+    // **1体ずつ**（2026-09-07 の「1体ずつしか出さない」）
     const { spots, animals, advance } = sceneRig(id);
     advance(0.5);
-    for (const spot of spots.runtimes) spots.tap(spot);
-    advance(PEAK_AT_SEC + 0.3);
     for (const spot of spots.runtimes) {
       const slot = animals.getSlot(spot.config.id);
       if (!slot) continue;
+      // **出きった瞬間**で測る。そのあとは出ているあいだの癖（§6-2）が
+      // 乗るので、位置は動いてよい（下の「動きすぎない」で見る）
+      spots.tap(spot);
+      advance(PEAK_AT_SEC + DT);
       expect(spot.reveal, `${id}/${spot.config.id}`).toBe(1);
       expect(slot.built.group.position.x, `${id}/${spot.config.id}`).toBeCloseTo(0, 10);
       expect(slot.built.group.rotation.z, `${id}/${spot.config.id}`).toBeCloseTo(0, 10);
       expect(slot.built.group.position.y, `${id}/${spot.config.id}`).toBeCloseTo(slot.outY, 10);
+      advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.2);
     }
   });
 
@@ -2139,9 +2476,17 @@ describe('§6-2 同じ隠れ場所から別の動物が出る', () => {
   }
 
   /** 1周: 全部押して、出て、引っ込むまで */
+  /**
+   * 全部の隠れ場所を1周ぶん出して引っ込める。
+   *
+   * **1体ずつ押す**（2026-09-07 の「1体ずつしか出さない」）。
+   * まとめて押すと2体目から順番待ちになり、入れ替えの抽選が回らない
+   */
   function cycle(rig: ReturnType<typeof shuffleRig>): void {
-    for (const spot of rig.spots.runtimes) rig.spots.tap(spot);
-    rig.advance(3.2);
+    for (const spot of rig.spots.runtimes) {
+      rig.spots.tap(spot);
+      rig.advance(3.2);
+    }
   }
 
   it('同じ隠れ場所から、2種類以上の動物が出る', () => {
@@ -2211,7 +2556,7 @@ describe('§6-2 同じ隠れ場所から別の動物が出る', () => {
 
   it('出ている最中には入れ替わらない', () => {
     const rig = shuffleRig('ouchi', 1.0);
-    for (const spot of rig.spots.runtimes) rig.spots.tap(spot);
+    rig.spots.tap(rig.spots.runtimes[0]);
     rig.advance(0.6); // 出きったところ
     const before = rig.layout();
     const swapsBefore = rig.animals.getSwapCount();
@@ -2324,14 +2669,18 @@ describe('§6-3 サプライズ「ばあっ！」', () => {
     s.update(0.016, camera());
     expect(s.maybeTrigger('neko')).toBe(true);
 
+    // **どの隠れ場所も、押せば必ず応答が返る**（サプライズは入力を塞がない）
     const before = spots.getResponseCount();
     for (const spot of spots.runtimes) spots.tap(spot);
     expect(spots.getResponseCount() - before).toBe(spots.runtimes.length);
 
-    // 出ているあいだも、登場は最後まで走る
-    advance(0.8);
+    // 出ているあいだも、登場は最後まで走る。
+    // **1体ずつ**（2026-09-07 の「1体ずつしか出さない」）
     for (const spot of spots.runtimes) {
+      spots.tap(spot);
+      advance(0.8);
       expect(animals.getExposure(spot)!.fraction, spot.config.id).toBeGreaterThan(0.5);
+      advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.2);
     }
   });
 

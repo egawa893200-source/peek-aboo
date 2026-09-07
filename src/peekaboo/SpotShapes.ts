@@ -169,6 +169,8 @@ const PALETTES: Record<SpotKind, Palette> = {
   blanket: { body: 0xdfe6ef, cover: 0x5a86c4, accent: 0x3f6091 },
   hollow: { body: 0x6b4a30, cover: 0x8a6440, accent: 0x3f2c1c },
   pot: { body: 0xc4653f, cover: 0xdc7c53, accent: 0x6f4326 },
+  // §6「残るもの」。**隠れ場所そのものが入れ替わる**（2026-09-07 に人間が決めた）
+  egg: { body: 0xf1e3c6, cover: 0xf7efdc, accent: 0xc9a97a },
 };
 
 function standard(color: number, roughness = 0.85): THREE.MeshStandardMaterial {
@@ -225,6 +227,8 @@ export function createSpotShape(kind: SpotKind): SpotShape {
       return createHollow(palette);
     case 'pot':
       return createPot(palette);
+    case 'egg':
+      return createEgg(palette);
     default:
       // 未知の形でも、箱で代役を立てて押しても無反応にはしない（不変条件1／7）
       return createBox(palette);
@@ -812,6 +816,108 @@ function createPot(p: Palette): SpotShape {
         leaves[i].position.x = side * (0.12 + W * 0.3 * t);
         leaves[i].rotation.z = side * 0.7 * t;
       }
+    },
+    setWobble(r) {
+      group.rotation.z = r;
+    },
+    dispose() {
+      disposeObject3D(group);
+    },
+  };
+}
+
+/* --- たまご（§6 の「残るもの」）------------------------------------------- */
+
+/**
+ * たまご。**上半分が横に倒れて開く。**
+ *
+ * ==========================================================================
+ * 2026-09-07 に人間が決めた形。
+ * はじめは「引っ込んだあとに小さな卵が残る」だけにしていたが、実機で
+ * 「卵が小さく残っているが何にも意味がない。卵になった場合は隠れ場所ごと
+ * 無くして卵を新たな隠れ場所として設定するほうがいい」と言われた。
+ *
+ * **縦に開かないこと。** きのほらを上下の唇が開く形にしたとき、
+ * 上の唇が上がりきっても出てきた動物に重なって、はりねずみが一度も
+ * 見えなかった（CLAUDE.md の実測）。ここでは上半分を**横に倒す**。
+ *
+ * **球だけで作らないこと。** 球は上下で横幅がすぼまるので、
+ * 縁のあたりに菱形の隙間が残る。平らな板を1枚重ねて塞ぐ。
+ * ==========================================================================
+ */
+function createEgg(p: Palette): SpotShape {
+  const group = new THREE.Group();
+
+  const RX = HALF_W * 0.94;
+  /** 割れ目（ここが縁。ほかの隠れ場所と同じ高さに合わせる） */
+  const CRACK_Y = HALF_H;
+  /** 下半分の深さ。ほかの隠れ場所と同じくらいの「部屋」を作る */
+  const LOWER = 1.575;
+  const RZ = D * 0.5;
+
+  // 殻の下半分。
+  //
+  // **縁の高さで前に張り出させないこと。**
+  // 下半球を縁に合わせて置いた版は、いちばん太いところ（＝赤道）が
+  // ちょうど縁に来て、出てきた動物の前に殻が掛かった
+  // （体の見えている割合が 68% → 判定は 55% ぎりぎり、こやで 18点が殻に当たった）。
+  // 楕円体を**縁より下に沈めて**置くと、縁のあたりでは細くなるので前に出ない。
+  // 縁の近くを塞ぐのは下の前板（`egg.front`）の仕事
+  const lower = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), standard(p.body, 0.9));
+  lower.name = 'egg.lower';
+  lower.scale.set(RX, LOWER * 0.52, RZ);
+  lower.position.set(0, CRACK_Y - LOWER * 0.52, 0.0);
+  group.add(lower);
+
+  // 前板。球のすぼまりで残る隙間を塞ぐ（CLAUDE.md の実測）
+  group.add(
+    plate('egg.front', RX * 1.72, LOWER * 0.92, PLATE, standard(p.body, 0.9), 0, CRACK_Y - LOWER * 0.46, FRONT_Z + 0.02)
+  );
+  // 背板。奥からの抜けを塞ぐ。**殻と同じ色にする。**
+  // 別の色にした版は「たまごの後ろに板が置いてある」ように見えた
+  group.add(plate('egg.back', RX * 1.72, LOWER * 1.1, PLATE, standard(p.body, 0.95), 0, CRACK_Y - LOWER * 0.5, -HALF_D - 0.1));
+
+  // まだら。無地だと石に見えた
+  for (const [x, y, r] of [
+    [-0.28, -0.2, 0.11],
+    [0.22, -0.55, 0.09],
+    [0.05, -0.86, 0.07],
+  ] as const) {
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), standard(p.accent, 0.95));
+    dot.name = 'egg.dot';
+    dot.scale.z = 0.25;
+    dot.position.set(x, CRACK_Y + y, FRONT_Z + 0.06);
+    group.add(dot);
+  }
+
+  // 上半分（ふた）。**横に倒れて開く**
+  const capPivot = new THREE.Group();
+  capPivot.position.set(-RX * 0.87, CRACK_Y, 0.0);
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    standard(p.cover, 0.9)
+  );
+  cap.name = 'egg.cap';
+  // **胴と同じ幅にする。** 広いと「たまご」ではなく「きのこ」に見えた
+  cap.scale.set(RX * 0.87, H * 0.6, RZ);
+  cap.position.set(RX * 0.87, 0, 0);
+  capPivot.add(cap);
+  group.add(capPivot);
+
+  return {
+    group,
+    coverTopY: CRACK_Y,
+    coverBottomY: CRACK_Y - LOWER,
+    mouthWidth: RX * 1.72,
+    animalZ: ANIMAL_Z,
+    hintZ: HINT_Z,
+    setOpen(t) {
+      // 左の縁を軸に、外へ倒す。**上へは逃がさない**（動物に重なる）。
+      // 1.35rad ＋ 0.34 では、出てきた動物にふたが掛かって
+      // 体の見えている割合が 54% まで落ちた（判定は 55%）
+      capPivot.rotation.z = t * 1.9;
+      capPivot.position.x = -RX * 0.87 - t * 0.52;
+      capPivot.position.y = CRACK_Y + t * 0.06;
     },
     setWobble(r) {
       group.rotation.z = r;

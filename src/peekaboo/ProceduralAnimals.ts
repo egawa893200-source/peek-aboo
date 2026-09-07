@@ -60,6 +60,17 @@ export interface ProceduralAnimal {
   /** 視線を向ける先（§4-4「出きったらカメラの方を向く」） */
   readonly head: THREE.Object3D;
   /**
+   * 出かけ具合 0..1 に応じて、体の奥行きを決める。
+   *
+   * **絵を貼った動物（道A）はこれが要る。** 板は前板との隙間を埋めるために
+   * 手前へ出してあるが、隠れているあいだも手前に居ると、
+   * 葉や水面のように薄い覆いの**前**に出てしまう
+   * （2026-09-07 に実機で発覚。うみ の すいめん でクマノミが丸見えだった）。
+   * 隠れているあいだは奥に、出てくるにつれて手前に。
+   * 手続き生成の動物は厚みがあるので、何もしない。
+   */
+  setDepth(reveal: number): void;
+  /**
    * 視線をどれだけ効かせるか 0..1。
    * さかな・かに・たこは**横向き／真上向き**に作ってあるので、
    * カメラを正面から見せると輪郭が崩れる。浅くしか向かせない。
@@ -139,6 +150,30 @@ function fin(mat: THREE.Material, w: number, h: number, d = 0.03): THREE.Mesh {
  * その場合はけものとして、耳も鼻も尾も無い塊になる。
  * 見分けはつかないが、アプリは動く。
  */
+/**
+ * ヒント（縁から出る部分）だけを作る。
+ *
+ * **絵を貼った動物（道A）もこれを使う。**
+ * 絵の上側を切って出していたら、**顔が丸ごと見えて誰か分かってしまった**
+ * （2026-09-07 に実機で指摘された）。「ばあ」は開けるまで分からないから
+ * 面白いので、縁から出すのは §5-1 の `hintPart`（耳・尻尾・ひれ）に限る。
+ */
+export function createHintNode(cfg: AnimalConfig, height: number): THREE.Object3D {
+  return createHint(cfg.hintPart, height, hintPalette(cfg));
+}
+
+/** ヒントだけを作るための最小の色。体は絵なので、体色だけ合わせる */
+function hintPalette(cfg: AnimalConfig): Palette {
+  return {
+    skin: standard(cfg.color),
+    belly: standard(cfg.bellyColor),
+    dark: standard('#20242c', 0.45),
+    warm: standard('#f2a93b', 0.55),
+    accent: standard(new THREE.Color(cfg.color).multiplyScalar(0.72), 0.72),
+    glint: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  };
+}
+
 export function createProceduralAnimal(cfg: AnimalConfig): ProceduralAnimal {
   const group = new THREE.Group();
 
@@ -192,6 +227,8 @@ export function createProceduralAnimal(cfg: AnimalConfig): ProceduralAnimal {
     gazeStrength: built.gazeStrength,
     hint,
     hintHeight,
+    // 手続き生成の体には厚みがあるので、奥行きは動かさない
+    setDepth() {},
     // 手続き生成は data/animals.ts で1体ずつ決めてある
     autoFit: false,
     setGlow(amount) {

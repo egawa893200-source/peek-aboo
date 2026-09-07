@@ -619,10 +619,16 @@ test.describe('§4-5 移動モード', () => {
         const id = api.getChase()!.answerSpotId;
         const s = api.getSpots().find((x) => x.id === id)!;
         api.tap(s.screenX, s.screenY);
-        const t0 = performance.now();
-        while (performance.now() - t0 < 9000) {
+        // **待つ長さを壁時計で決めないこと**（CLAUDE.md の実測）。
+        // 1周は更新時計で 4.85秒。GPU の無い環境では壁時計で 5〜10秒 かかり、
+        // 味つけを足して重くなったぶん 9000ms では届かなくなった。
+        // 壁時計は「固まったときに止める」ためだけに使う
+        const sim0 = api.getSimulatedSeconds();
+        const wall0 = performance.now();
+        while (performance.now() - wall0 < 60_000) {
           await new Promise((r) => requestAnimationFrame(r));
           if (api.getChase()!.laps >= lap + 1) break;
+          if (api.getSimulatedSeconds() - sim0 > 12) break;
         }
       }
       return api.getChase()!.history;

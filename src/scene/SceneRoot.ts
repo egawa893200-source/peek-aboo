@@ -20,12 +20,18 @@ import { ChaseSystem } from '../peekaboo/ChaseSystem';
 import { EmptySpot } from '../peekaboo/EmptySpot';
 import { disposeObject3D } from '../peekaboo/SpotShapes';
 import { SpotShuffle } from '../peekaboo/SpotShuffle';
-import { createCutoutAnimal } from '../peekaboo/CutoutAnimal';
+import { createCutoutAnimal, createCutoutShadow } from '../peekaboo/CutoutAnimal';
 import { createProceduralAnimal } from '../peekaboo/ProceduralAnimals';
 import { SpotSystem } from '../peekaboo/SpotSystem';
 import { createBackdropTexture, createContactShadow, createShadowTexture } from './Backdrop';
-import { Flavor } from './Flavor';
+import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
+
+/** 行き先の隠れ場所からこれだけ離れていないと、足あとを落とさない */
+const FOOTPRINT_KEEP_AWAY = 0.95;
 import type { SceneConfig } from '../types';
+
+/** 足あとの位置を取るための使い捨て。**毎フレーム new をしない**（§10-3） */
+const _footAt = new THREE.Vector3();
 
 export class SceneRoot {
   readonly group = new THREE.Group();
@@ -41,6 +47,10 @@ export class SceneRoot {
   readonly flavor: Flavor;
   /** もう1匹（§6 の〈大〉）の見た目。**`Flavor` は捨てない**ので、ここで捨てる */
   private cameo: { dispose(): void } | null = null;
+  /** 影（§6 の〈中〉）の見た目。同上 */
+  private shadowShapes: Map<string, THREE.Object3D> | null = null;
+  /** 足あとを落とす間隔の積算（§6 の〈中〉） */
+  private footprintT = 0;
 
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
@@ -206,17 +216,49 @@ export class SceneRoot {
           })
         : null;
 
-    const empty = new EmptySpot(spots);
-    spots.onEmpty((spot) => empty.trigger(spot, chase?.getAnswerSpot() ?? null));
-
-    /** もう1匹の見た目。**作った側で捨てる**（不変条件8） */
-    let cameoBuilt: { dispose(): void } | null = null;
-
     // 場面ごとの味つけ（2026-09-07）。**`config.flavor` を読むだけ。**
     // 場面 id で分岐しない（`Flavor.ts` 冒頭の理由）
     const flavor = new Flavor(spots.runtimes, config.flavor, {
       ...(options.chaseSeed !== undefined ? { seed: options.chaseSeed ^ 0x1b873593 } : {}),
     });
+
+    const empty = new EmptySpot(spots);
+    spots.onEmpty((spot) => {
+      // もう1匹が顔を出している場所なら、**その子が引っ込む**（§6 の〈大〉）。
+      // 押した先に居るのに「あれ？」＋正解を教える揺れが出るのは因果が合わない
+      // （2026-09-07 に実機で指摘）
+      if (flavor.tapCameo(spot.config.id)) return;
+      empty.trigger(spot, chase?.getAnswerSpot() ?? null);
+    });
+
+    /** もう1匹の見た目。**作った側で捨てる**（不変条件8） */
+    let cameoBuilt: { dispose(): void } | null = null;
+    /** 影の見た目。同上 */
+    let shadowShapes: Map<string, THREE.Object3D> | null = null;
+
+
+    // 残るもの（§6）。**隠れ場所そのものを たまご／つぼみ に入れ替える。**
+    // 「小さな卵が横に残っているだけでは何の意味もない」と言われて、
+    // 人間が決めた形（2026-09-07）。当たり判定は動かない（`worldPosition` 基準）
+    flavor.onLeftover((spot, kind) => {
+      if (spots.setShape(spot, kind)) animals.reanchor(spot);
+    });
+    flavor.onLeftoverEnd((spot) => {
+      if (spots.setShape(spot, spot.config.kind)) animals.reanchor(spot);
+    });
+
+    // 影が先に映る（§6 の〈中〉）。**その動物の絵を黒く塗った板**を使う。
+    // 丸ふたつで作ったら「雪だるまみたいで意味がない」と言われた（2026-09-07）。
+    // 絵が無い動物は影も出さない（不変条件7。手続き生成の輪郭は板にできない）
+    if (config.flavor?.shadowPeek) {
+      const shapes = new Map<string, THREE.Object3D>();
+      for (const [animalId, tex] of cutouts) {
+        const cfg = findAnimal(animalId);
+        if (cfg) shapes.set(animalId, createCutoutShadow(cfg, tex));
+      }
+      shadowShapes = shapes;
+      flavor.setShadowShapes(shapes, (spotId) => animals.getSlot(spotId)?.config.id ?? null);
+    }
 
     // もう1匹（§6 の〈大〉）。**追いかけっこの相手ではない脇役。**
     // `AnimalSystem` のスロットを使わない（使うと `ChaseSystem` と
@@ -241,26 +283,9 @@ export class SceneRoot {
       }
     }
 
-    // 足あと（§6 の〈中〉）。**跳ねた場所に置く。**
-    // 走り手はモードBに1体しか居ないので、居るスロットを探して世界座標を取る。
-    // `ChaseSystem` は位置をイベントで渡さない（跳ねた回数しか知らせない）
-    if (chase && config.flavor?.footprints) {
-      const at = new THREE.Vector3();
-      chase.onHop(() => {
-        for (const runtime of spots.runtimes) {
-          const slot = animals.getSlot(runtime.config.id);
-          if (!slot) continue;
-          slot.built.group.getWorldPosition(at);
-          // 高さは `Flavor` が決める（うさぎの高さに置くと、くさむらに
-          // 隠れて1つも見えなかった。`FOOTPRINT_Y` の説明を読むこと）
-          flavor.dropFootprint(at.x);
-          return;
-        }
-      });
-    }
-
     const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdrop, shadowTexture, shadows, cutouts);
     root.cameo = cameoBuilt;
+    root.shadowShapes = shadowShapes;
     return root;
   }
 
@@ -275,11 +300,46 @@ export class SceneRoot {
   update(dt: number, camera: THREE.Camera): void {
     this.spots.update(dt);
     this.chase?.update(dt);
+    this.trackFootprints(dt);
     this.empty.update(dt);
     // **`SpotSystem` のあと。** 状態の遷移（ため のはじまり・登場の山）を
     // 同じフレームで拾う。先に呼ぶと足音と地ひびきが1フレーム遅れる
     this.flavor.update(dt);
     this.animals.update(dt, this.spots, camera);
+  }
+
+  /**
+   * 足あと（§6 の〈中〉）。**跳ねている道筋そのものに落とす。**
+   *
+   * 画面の下へ横一列に並べた版は、実機で「意味のない足あと」と言われた
+   * （2026-09-07）。居た場所から隠れた場所へ**つながって見える**ことが要る。
+   *
+   * `ChaseSystem` は位置をイベントで渡さない（跳ねた回数しか知らせない）ので、
+   * 移動中は毎フレーム、走り手の世界座標を見て一定間隔で落とす。
+   */
+  private trackFootprints(dt: number): void {
+    // **跳んでいるあいだだけ。** `isMoving()` は予告（aim）と到着（look・burrow）も
+    // 含むので、そのまま使うと動いていない時間に足あとが同じ場所へ積み上がる
+    // （実測: 中央のくさむらの下に縦一列で 5個 重なった）
+    if (this.chase?.getPhase() !== 'hop') {
+      this.footprintT = 0;
+      return;
+    }
+    this.footprintT += dt;
+    if (this.footprintT < FOOTPRINT_EVERY_SEC) return;
+    this.footprintT = 0;
+    const dest = this.chase.getAnswerSpot();
+    for (const runtime of this.spots.runtimes) {
+      const slot = this.animals.getSlot(runtime.config.id);
+      if (!slot) continue;
+      slot.built.group.getWorldPosition(_footAt);
+      // **行き先の近くには落とさない。** 足あとは隠れ場所より手前に出るので、
+      // 着地点に残すと、そのあと出てくる動物にかぶる
+      if (_footAt.distanceTo(dest.worldPosition) > FOOTPRINT_KEEP_AWAY) {
+        this.flavor.dropFootprint(_footAt.x, _footAt.y);
+      }
+      return;
+    }
   }
 
   /**
@@ -295,6 +355,13 @@ export class SceneRoot {
     for (const shadow of this.shadows) disposeObject3D(shadow, { keepTextures: true });
     this.flavor.dispose();
     this.cameo?.dispose();
+    if (this.shadowShapes) {
+      // テクスチャは `AssetLoader` が持っている（動物の絵と同じもの）
+      for (const shape of this.shadowShapes.values()) {
+        disposeObject3D(shape, { keepTextures: true });
+      }
+      this.shadowShapes = null;
+    }
     this.backdrop?.dispose();
     this.shadowTexture?.dispose();
     this.empty.dispose();

@@ -69,8 +69,15 @@ export type SwayKind = 'wind' | 'water';
 /** 画面を横切るもの。**手続き生成だけで作る**（不変条件7） */
 export type CrossingKind = 'butterfly' | 'fish';
 
-/** 隠れ場所に残るもの（動物が引っ込んだあと）。次に押すと消える */
-export type LeftoverKind = 'flower' | 'egg';
+/**
+ * 引っ込んだあと、その隠れ場所が入れ替わる先（2026-09-07 に人間が決めた）。
+ *
+ * **横に小さな飾りを置くのではなく、隠れ場所そのものを差し替える。**
+ * 「卵が小さく残っているが何にも意味がない」と実機で言われたため。
+ * つぼみ（`flower`）も作ったが、**花びらが出てきた動物を隠して**
+ * 見えている割合が 29% まで落ちたので取り下げた（判定は 55%）。
+ */
+export type LeftoverKind = 'egg';
 
 /** 場面ごとの味つけ。**どれも省略できる。省略した場面は何も起きない** */
 export interface SceneFlavor {
@@ -122,7 +129,9 @@ export type SpotKind =
   | 'water' // 水面から顔を出す
   | 'blanket' // 布がめくれる
   | 'hollow' // 木の洞から
-  | 'pot'; // 植木鉢から
+  | 'pot' // 植木鉢から
+  // --- ここから §6 の「残るもの」。**隠れ場所そのものが入れ替わる** ---
+  | 'egg'; // たまご。上半分が横に倒れて開く
 
 export interface SpotConfig {
   id: string;

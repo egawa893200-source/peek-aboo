@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 
-import type { SceneMode, SpotConfig, SpotState } from '../types';
+import type { SceneMode, SpotConfig, SpotKind, SpotState } from '../types';
 import { createSpotShape, type SpotShape } from './SpotShapes';
 
 /* --- タイミング（§4-3。実測で決めた値なので、動かすときは設計書も直すこと） --- */
@@ -47,8 +47,8 @@ export const APPEAR_DUR_SEC = 0.35;
  * 遅くなったぶんだけ ため を縮めて、山（§4-3 の 0.50s）は必ず同じ時刻に来る。
  * 速さをそのまま振って合計を伸ばすと、§4-3 の 0.50s と §4-5 の 1周 4.80s が
  * その回ごとにずれる（実際に安全テスト5件が落ちた）。
- * ため が無い呼び戻し（`hiding` → `appearing`）では吸収先が無いので、
- * **速くなる側にしか振らない**（`rollVariation` の `absorbDelay`）。
+ * **振るのは速い側だけ**（0.9〜1.0 倍）。遅い側に振って ため で吸収すると、
+ * ため が 0.15 → 0.115秒 まで縮んで §4-3 の下限を割る（実測）。
  */
 export const SPEED_VAR = 0.1;
 /** 大きさのばらつき（±この割合）。**隠れているあいだは効かせない**（§4-2） */
@@ -140,7 +140,13 @@ export interface SpotHitTester {
 
 export interface SpotRuntime {
   readonly config: SpotConfig;
-  readonly shape: SpotShape;
+  /**
+   * いまの見た目。**`config.kind` とは違うことがある。**
+   * §6「残るもの」で、たまご／つぼみに入れ替わる（2026-09-07 に人間が決めた）
+   */
+  shape: SpotShape;
+  /** いまの見た目の種類。`config.kind` に戻すときに比べる */
+  shapeKind: SpotKind;
   readonly group: THREE.Group;
   /** 当たり判定に使うワールド座標。毎フレーム作り直さない（§10-3） */
   readonly worldPosition: THREE.Vector3;
@@ -235,6 +241,9 @@ export class SpotSystem {
 
   /** 応答を返したタップの総数。**タップ総数と必ず一致すること**（不変条件1） */
   private responses = 0;
+  /** 順番待ちで出さなかった回数（2026-09-07 の「1体ずつ」） */
+  private blocked = 0;
+  private readonly busyFns: SpotEvent[] = [];
 
   /**
    * @param mode 場面の遊び方（§4-5）。`chase` では `out` のあと
@@ -257,6 +266,7 @@ export class SpotSystem {
       const runtime: SpotRuntime = {
         config,
         shape,
+        shapeKind: config.kind,
         group,
         worldPosition: new THREE.Vector3().fromArray(config.position),
         state: 'hidden',
@@ -286,6 +296,32 @@ export class SpotSystem {
     this.sx = new Float64Array(n);
     this.sy = new Float64Array(n);
     this.onScreen = new Uint8Array(n);
+  }
+
+  /**
+   * 見た目だけを入れ替える（§6「残るもの」。2026-09-07 に人間が決めた）。
+   *
+   * ==========================================================================
+   * **当たり判定は動かない。** 判定は `worldPosition`（＝設定した座標）を
+   * 投影して決まるので、見た目が変わっても押せる場所は同じ。
+   *
+   * **隠れているときにしか呼ばないこと。** 出ている最中に入れ替えると、
+   * 動物が宙に浮いたり、開いたふたが消えたりする。
+   * 呼んだあとは `AnimalSystem.reanchor()` で動物を置き直すこと
+   * （高さも開口部の幅も変わるので、置き直さないと縁からはみ出す）。
+   * ==========================================================================
+   */
+  setShape(spot: SpotRuntime, kind: SpotKind): boolean {
+    if (spot.shapeKind === kind || spot.state !== 'hidden') return false;
+    spot.group.remove(spot.shape.group);
+    spot.shape.dispose();
+    spot.shape = createSpotShape(kind);
+    spot.shapeKind = kind;
+    spot.group.add(spot.shape.group);
+    // 閉じた状態から始める。**開き具合を引き継がない**
+    spot.shape.setOpen(0);
+    spot.openPrev = 0;
+    return true;
   }
 
   /** 「ばあ！」を返すタイミング。押した瞬間か、登場の山か */
@@ -377,8 +413,18 @@ export class SpotSystem {
 
     switch (spot.state) {
       case 'hidden':
+        // **1体ずつしか出さない**（2026-09-07 に人間が決めた）。
+        // 1歳半は画面を連打するので、4体が同時に出ていると
+        // 「自分が押したから出た」が読めなくなる。誰かが出ているあいだは
+        // 新しく出さない。**ただし無反応にはしない**
+        // （ぷるっ・波紋・音は上で返しているので不変条件1・2 は守れる）
+        if (this.busySpot(spot)) {
+          this.blocked++;
+          this.emit(this.busyFns, spot);
+          break;
+        }
         spot.state = 'appearing';
-        this.rollVariation(spot, true);
+        this.rollVariation(spot);
         // 速さのぶんを ため で吸収する（山は必ず PEAK_AT_SEC）
         spot.delay = PEAK_AT_SEC - APPEAR_DUR_SEC * spot.speedVar;
         // 声は山で。ここで鳴らすと「ばあ」ではなくただのボタンになる（§4-3）
@@ -388,7 +434,7 @@ export class SpotSystem {
         // ここで 0.15秒待たせると「もう一回！」への反応が鈍く感じる
         spot.state = 'appearing';
         spot.delay = 0;
-        this.rollVariation(spot, false);
+        this.rollVariation(spot);
         this.emit(this.voiceFns, spot);
         break;
       case 'appearing':
@@ -607,6 +653,7 @@ export class SpotSystem {
     return this.runtimes.map((s, i) => ({
       id: s.config.id,
       kind: s.config.kind,
+      shapeKind: s.shapeKind,
       state: s.state,
       reveal: s.reveal,
       taps: s.taps,
@@ -640,11 +687,41 @@ export class SpotSystem {
    * 1オブジェクトにつき 4回 消費するので、共有の乱数列に相乗りすると
    * モデルを1つ足しただけで見た目が変わる（みずのなかの実測）。
    */
-  private rollVariation(spot: SpotRuntime, absorbDelay: boolean): void {
-    const speed = 1 + (this.rng() * 2 - 1) * SPEED_VAR;
-    // ため で吸収できないときは「同じか速い」だけ。遅い側に振ると
-    // 登場が 0.35秒 を超える（不変条件4）
-    spot.speedVar = absorbDelay ? speed : Math.min(1, speed);
+  /**
+   * いま別の子が出ている（or 出入りの途中）か。
+   *
+   * **`moving`（§4-5）は数えない。** モードBは1体しか居らず、
+   * 移動中に別の場所を押すのは §4-6 の空振りとして扱う
+   */
+  private busySpot(exclude: SpotRuntime): SpotRuntime | null {
+    for (const s of this.runtimes) {
+      if (s === exclude || !s.occupied) continue;
+      if (s.state === 'appearing' || s.state === 'out' || s.state === 'hiding') return s;
+    }
+    return null;
+  }
+
+  /** 「いま順番待ち」で出さなかった回数（E2E から見る） */
+  getBlockedCount(): number {
+    return this.blocked;
+  }
+
+  /** 別の子が出ているあいだに押されたときのイベント */
+  onBusy(fn: SpotEvent): void {
+    this.busyFns.push(fn);
+  }
+
+  private rollVariation(spot: SpotRuntime): void {
+    // **速い側にしか振らない**（2026-09-07 に実測で決めた）。
+    //
+    // 両側に振って ため で吸収する版を作ったら、遅い回に ため が
+    // 0.15 → 0.115秒 まで縮んで、§4-3 の「0.15秒より速いと『ばあ』に
+    // ならない。押したら即出るのは、ただのボタン」を割った
+    // （不変条件4 のテストが落ちた）。
+    //   ・速さ 0.9〜1.0 倍 → 登場は 0.315〜0.35秒（0.35 を超えない）
+    //   ・ため は 0.15〜0.185秒（0.15 を下回らない）
+    //   ・合計は必ず 0.50秒（§4-3 の山と §4-5 の1周が動かない）
+    spot.speedVar = 1 - this.rng() * SPEED_VAR;
     spot.sizeVar = 1 + (this.rng() * 2 - 1) * SIZE_VAR;
     spot.voiceVar = 1 + (this.rng() * 2 - 1) * VOICE_VAR;
   }
@@ -657,6 +734,8 @@ export class SpotSystem {
 export interface SpotSnapshot {
   id: string;
   kind: string;
+  /** いまの見た目。§6 で たまご に入れ替わると `kind` と違う値になる */
+  shapeKind: string;
   state: SpotState;
   reveal: number;
   taps: number;

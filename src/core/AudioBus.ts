@@ -84,7 +84,7 @@ export type VoiceClip = 'baa' | 'kocchi';
  *  - rustle … 草をかき分けるワサワサ（§4-5 / §4-6）
  *  - huh    … 空振りの「あれ？」（§4-6。**落胆の音にしない**）
  */
-export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh' | 'thud';
+export type OneShot = 'plop' | 'bubble' | 'hop' | 'rustle' | 'huh' | 'thud' | 'peep';
 
 /**
  * 声の base64 を取り出す。
@@ -136,6 +136,8 @@ export class AudioBus {
    * 入れると1回目が黙って落ちる（「声が鳴らないのはたいてい間隔制限」）
    */
   private lastThud = 0;
+  /** 鳴き声の最短間隔用。**順に鳴らす**ので共通の枠だと落ちる */
+  private lastPeep = 0;
   /** ワサワサのノイズ。毎回作らずに使い回す（§10-3） */
   private rustleBuffer: AudioBuffer | null = null;
   /**
@@ -667,7 +669,13 @@ export class AudioBus {
     };
   }
 
-  playOneShot(name: OneShot): void {
+  /**
+   * 単発の効果音。
+   *
+   * @param pitch 高さの倍率（0.8〜1.25）。**声のかわりに使わないこと。**
+   *   「みんなで鳴く」（§6）は場所ごとに高さを変えて鳴らす
+   */
+  playOneShot(name: OneShot, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || this.disabled) return;
 
@@ -676,11 +684,18 @@ export class AudioBus {
     // 同じ瞬間に鳴ることがあり、片方が消えると動きと音がずれて聞こえる
     const now = ctx.currentTime;
     const gate =
-      name === 'rustle' ? this.lastRustle : name === 'thud' ? this.lastThud : this.lastOneShot;
+      name === 'rustle'
+        ? this.lastRustle
+        : name === 'thud'
+          ? this.lastThud
+          : name === 'peep'
+            ? this.lastPeep
+            : this.lastOneShot;
     const minGap = name === 'rustle' ? 0.18 : 0.05;
     if (now - gate < minGap) return;
     if (name === 'rustle') this.lastRustle = now;
     else if (name === 'thud') this.lastThud = now;
+    else if (name === 'peep') this.lastPeep = now;
     else this.lastOneShot = now;
 
     if (name === 'rustle') {
@@ -695,7 +710,23 @@ export class AudioBus {
     osc.type = 'sine';
     osc.connect(gain);
 
-    if (name === 'hop') {
+    // 高さの倍率。**極端に振らせない**（別の音に聞こえる）
+    const k = Math.max(0.8, Math.min(1.25, pitch));
+
+    if (name === 'peep') {
+      // §6「みんなで鳴く」。**「ばあっ！」を使わないこと。**
+      // 隠れたままなのに「ばあっ」と言うのは、いちばん紛らわしい間違いだった
+      // （2026-09-07 に実機で指摘）。短く上がって落ちる、鳴き声らしい2音
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(540 * k, now);
+      osc.frequency.exponentialRampToValueAtTime(820 * k, now + 0.07);
+      osc.frequency.exponentialRampToValueAtTime(430 * k, now + 0.22);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(ONE_SHOT_PEAK * 0.5, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.32);
+    } else if (name === 'hop') {
       // ぴょん。**短く、上がって終わる。** 落ちる音にすると
       // 「着地に失敗した」ように聞こえて、跳ねている絵と合わない（§4-5）
       osc.type = 'triangle';

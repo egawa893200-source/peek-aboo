@@ -55,8 +55,16 @@ const OUT_LIFT = 0.95;
  * §4-2 の上限（`mouthWidth >= animalWidth * 0.86`）そのもの
  */
 const FIT_WIDTH = 0.86;
-/** 隠れたときに縁の下へ収めるための余白 */
-const FIT_MARGIN = 0.02;
+/**
+ * 隠れたときに縁の下へ収めるための余白。
+ *
+ * **0.02 では、こや（とびら）と しだ（くさむら）の下から足が出ていた**
+ * （2026-09-07 の実測。絵を貼った動物でだけ起きる。手続き生成の体は
+ * 細いので届いていなかった）。`coverBottomY` は「板の下端」だが、
+ * 板の形によっては、そこまでびっしり覆えていない。
+ * 0.06 でも1箇所残り、0.10 で全部の場面が漏れなしになった
+ */
+const FIT_MARGIN = 0.1;
 
 /**
  * 隠れているとき、体の頭を縁より**どれだけ下**に沈めるか（ワールド）。
@@ -95,6 +103,8 @@ export interface AnimalSlot {
   coverTopY: number;
   /** いまの光の強さ 0..1 */
   glow: number;
+  /** `out` に入ってからの秒数。出ているあいだの癖（§6-2）に使う */
+  outT: number;
   /**
    * いま居る隠れ場所。**モードB（§4-5）では移動のたびに変わる。**
    * `slots` のキーでもあるので、動かすときは必ず `reassign()` を通すこと。
@@ -220,6 +230,7 @@ export class AnimalSystem {
       outY: 0,
       coverTopY,
       glow: 0,
+      outT: 0,
       fitScale: config.scale,
       driven: false,
       gazeTarget: null,
@@ -282,6 +293,15 @@ export class AnimalSystem {
 
   getSwapCount(): number {
     return this.swaps;
+  }
+
+  /**
+   * 隠れ場所の見た目が入れ替わったあと、動物を置き直す（§6「残るもの」）。
+   * **呼ばないと、たまごの縁から体がはみ出す**（高さも開口部も変わるため）
+   */
+  reanchor(spot: SpotRuntime): void {
+    const slot = this.slots.get(spot.config.id);
+    if (slot) this.anchor(slot, spot);
   }
 
   /** 隠れ場所に合わせて、隠れる高さ・出きる高さ・ヒントの奥行きを決め直す */
@@ -355,7 +375,18 @@ export class AnimalSystem {
       // ワールド座標で書いているので、ここで上書きすると跳ねが潰れる
       if (!slot.driven) {
         const lift = liftCurve(slot.config.style, reveal);
-        built.group.position.y = slot.hiddenY + (slot.outY - slot.hiddenY) * lift;
+        // 出ているあいだの癖（§6-2）。**登場の 0.35秒では速すぎて見えない。**
+        // 実機で「キリンの首もゾウの鼻も先に出ておらず、普通にばあっするだけ」と
+        // 言われた（2026-09-07）。出きったあとの `OUT_IDLE_SEC`（1.6秒）は
+        // 十分に長いので、癖はそこで見せる。
+        // **`out` に入った瞬間は 0。** ここが 0 でないと、出きった位置が
+        // 動物ごとに変わって「出きったとき体が見えている」の判定がぶれる
+        if (spot.state === 'out') slot.outT += dt;
+        else slot.outT = 0;
+        const idle = idleMotion(slot.config.style, slot.outT);
+
+        built.group.position.y =
+          slot.hiddenY + (slot.outY - slot.hiddenY) * lift + idle.y * (slot.outY - slot.hiddenY);
         // 横のずれと傾き。**両端で必ず 0 に戻る**ので、
         // 隠れているとき（reveal = 0）と出きったとき（reveal = 1）の
         // 見え方は癖を入れる前とまったく同じ（不変条件3 と 2026-09-06 の再発防止）
@@ -363,9 +394,12 @@ export class AnimalSystem {
         // 内側へ振ると、隣の隠れ場所に重なって見える
         const side = spot.worldPosition.x < 0 ? -1 : 1;
         const arc = Math.sin(Math.PI * reveal);
-        built.group.position.x = arc * styleShiftX(slot.config.style) * side;
-        built.group.rotation.z = arc * styleTilt(slot.config.style) * side;
+        built.group.position.x = arc * styleShiftX(slot.config.style) * side + idle.x;
+        built.group.rotation.z = arc * styleTilt(slot.config.style) * side + idle.tilt;
       }
+
+      // 奥行き。絵を貼った動物は、隠れているあいだ奥に居る（`setDepth` の説明）
+      built.setDepth(reveal);
 
       // --- 大きさ。§4-4 のオーバーシュート -----------------------------------
       // **`config.scale` ではなく `fitScale`。** 絵を貼った動物は
@@ -517,6 +551,60 @@ function liftCurve(style: AnimalStyle, reveal: number): number {
     return Math.min(1, easeOutCubic(reveal) * 1.12 - 0.12 * Math.sin(Math.PI * reveal));
   }
   return easeOutCubic(reveal);
+}
+
+/**
+ * 出ているあいだの癖（§6-2）。
+ *
+ * ==========================================================================
+ * **登場の 0.35秒では癖が見えない。**
+ * 実機で「キリンの首もゾウの鼻も先に出ておらず、普通にばあっするだけ」と
+ * 言われた（2026-09-07）。0.35秒は「出た！」を作るための速さで、
+ * そこに動きを足しても目が追いつかない。
+ *
+ * 出きったあとの `OUT_IDLE_SEC`（1.6秒）は十分に長いので、癖はそこで見せる。
+ * **`out` に入った瞬間（t = 0）は必ず 0 を返す**ので、出きった位置は
+ * どの動物でも同じ（「出きったとき体が見えている」の判定がぶれない）。
+ *
+ * 戻り値は「体の高さぶんの割合」。`y` は隠れ〜出きるの幅に対する比。
+ * ==========================================================================
+ */
+function idleMotion(style: AnimalStyle, t: number): { x: number; y: number; tilt: number } {
+  // **出た直後は動かさない。** 出きった瞬間の位置は、どの動物でも同じで
+  // なければならない（そうしないと「出きったとき体が見えている」の判定が
+  // 動物ごとにぶれる）。落ち着いてから癖が出るほうが、動きとしても読みやすい
+  const ramp = smoothstep(0.15, 0.5, t);
+  if (ramp <= 0) return { x: 0, y: 0, tilt: 0 };
+  const m = motionOf(style, t);
+  return { x: m.x * ramp, y: m.y * ramp, tilt: m.tilt * ramp };
+}
+
+function motionOf(style: AnimalStyle, t: number): { x: number; y: number; tilt: number } {
+  switch (style) {
+    case 'peek':
+      // きりん。**さらに首を伸ばすように、ゆっくり上へ。**
+      // 1周 1.4秒。出ている 1.6秒でちょうど1回、伸びて戻る。
+      //
+      // **下には行かせない。** `sin` で作った版は後半で下がり、
+      // りす（peek）が岩に沈んで体の見えている割合が 53% まで落ちた
+      // （判定は 55%）。上がって戻るだけなら、必ず今より見えている
+      return { x: 0, y: (1 - Math.cos((t / 1.4) * Math.PI * 2)) * 0.5 * 0.12, tilt: 0 };
+    case 'slide':
+      // ぞう。**鼻で探すように、左右へゆっくり。**
+      // 横に**動かす**版（±0.10）は、隠れ場所の縁に食われて
+      // 体の見えている割合が 53% まで落ちた（判定は 55%）。
+      // **傾ける**なら中心が動かないので、縁に食われない
+      return { x: 0, y: 0, tilt: Math.sin((t / 1.2) * Math.PI * 2) * 0.14 };
+    case 'flip':
+      // さる。**跳ねる。** 短い周期で小さく上下
+      return { x: 0, y: Math.abs(Math.sin((t / 0.55) * Math.PI)) * 0.07, tilt: 0 };
+    case 'spin':
+      // ゆっくり首をかしげる
+      return { x: 0, y: 0, tilt: Math.sin((t / 1.6) * Math.PI * 2) * 0.12 };
+    default:
+      // pop は動かない。**全部に癖をつけない**（全部動くと誰も目立たない）
+      return { x: 0, y: 0, tilt: 0 };
+  }
 }
 
 /** 出るときの横のずれ[ワールド]。**両端で 0**（`sin` を掛けて使う） */

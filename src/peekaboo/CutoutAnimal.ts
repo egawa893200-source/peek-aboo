@@ -23,15 +23,16 @@
  *  - **光を当てない**（`MeshBasicMaterial` ＋ `toneMapped = false`）。
  *    参照画像は影も陰影も持たないフラット塗りなので、上から光を足すと
  *    絵の色が変わる。みずのなかの「加算の光が体色を消す」と同じ話
- *  - ヒント（縁から出る部分）は**同じ絵の上側を切って**使う。
- *    別に3Dの尻尾を生やすと、絵と立体が混ざって不揃いに見える
+ *  - ヒント（縁から出る部分）は **`hintPart` の手続き生成**（耳・尻尾・ひれ）。
+ *    **絵の上側を切って出さないこと。** そうしていたら、隠れているのに
+ *    顔が丸ごと見えて誰か分かってしまった（2026-09-07 に実機で指摘）
  * ==========================================================================
  */
 
 import * as THREE from 'three';
 
 import type { AnimalConfig } from '../types';
-import { HINT_EXPOSURE, type ProceduralAnimal } from './ProceduralAnimals';
+import { createHintNode, HINT_EXPOSURE, type ProceduralAnimal } from './ProceduralAnimals';
 import { disposeObject3D } from './SpotShapes';
 
 /**
@@ -59,20 +60,6 @@ const FORWARD = 0.26;
  * 境目がはっきりしているので、閾値で切って困らない
  */
 const ALPHA_TEST = 0.5;
-
-/** 上側だけを写す板を作る（ヒント用）。テクスチャは複製しない */
-function topSlicePlane(w: number, h: number, fraction: number, mat: THREE.Material): THREE.Mesh {
-  const geo = new THREE.PlaneGeometry(w, h * fraction);
-  const uv = geo.getAttribute('uv');
-  for (let i = 0; i < uv.count; i++) {
-    // v を上端側の `fraction` に押し込む
-    uv.setY(i, 1 - fraction + uv.getY(i) * fraction);
-  }
-  uv.needsUpdate = true;
-  // 原点を下端に。`AnimalSystem` は hint.position.y = 体の高さ として置く
-  geo.translate(0, (h * fraction) / 2, 0);
-  return new THREE.Mesh(geo, mat);
-}
 
 export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): ProceduralAnimal {
   const group = new THREE.Group();
@@ -104,7 +91,8 @@ export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): P
   // 原点を足元に（`createProceduralAnimal` と同じ約束）
   bodyGeo.translate(0, height / 2, 0);
   const body = new THREE.Mesh(bodyGeo, material);
-  body.position.z = FORWARD;
+  // 隠れているあいだは奥。出るにつれて手前へ（`setDepth`）
+  body.position.z = 0;
   body.name = `cutout.${cfg.id}`;
   group.add(body);
 
@@ -114,7 +102,13 @@ export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): P
   group.add(head);
 
   const hintHeight = height * HINT_EXPOSURE;
-  const hint = topSlicePlane(width, height, HINT_EXPOSURE, material);
+  // **絵の上側を切って出さないこと。**
+  // そうしていたら、隠れているのに顔が丸ごと見えて誰か分かってしまった
+  // （2026-09-07 に実機で指摘。おうち・のうじょう・どうぶつえんの全部）。
+  // 「ばあ」は開けるまで分からないから面白いので、縁から出すのは
+  // §5-1 の `hintPart`（耳・尻尾・ひれ）だけにする。
+  // 絵と手続き生成が混ざるが、**顔が見えるよりはるかにまし**
+  const hint = createHintNode(cfg, hintHeight);
   hint.name = `cutout.hint.${cfg.id}`;
   // **頭の上に載せること。** ここを書き忘れて足元（y=0）に置いたら、
   // 縁より上に出る部分が無くなり、25体すべてで はみ出しが 0.000 になった。
@@ -135,6 +129,13 @@ export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): P
     gazeStrength: 0,
     hint,
     hintHeight,
+    setDepth(reveal) {
+      // **隠れているあいだは前に出さない。**
+      // ずっと手前に置いていたら、うみ の すいめん（薄い水面）の前に
+      // 板が出て、クマノミが隠れているのに丸ごと見えていた（2026-09-07）。
+      // 出きったときだけ `FORWARD` まで来て、前板との隙間を埋める
+      body.position.z = FORWARD * Math.max(0, Math.min(1, reveal));
+    },
     // **隠れ場所に合わせて大きさを決め直させる。**
     // 絵の縦横比は先に決まっているので、幅と高さの制約から
     // いちばん大きく収まる倍率を `AnimalSystem` が出す
@@ -151,4 +152,38 @@ export function createCutoutAnimal(cfg: AnimalConfig, texture: THREE.Texture): P
       disposeObject3D(group, { keepTextures: true });
     },
   };
+}
+
+/**
+ * その動物の**影**（絵を黒く塗った板）。§6 の「影が先に映る」（おうち）。
+ *
+ * **丸ふたつで作らないこと。** はじめ「頭と体の丸」で作ったら、実機で
+ * 「雪だるまみたいで何の意味もない」と言われた（2026-09-07）。
+ * 影は中に居る動物の輪郭でなければ、期待も驚きも生まれない。
+ *
+ * 半透明にするので `alphaTest` ではなく `transparent` を使う。
+ * **`depthWrite` は切る**（隠れ場所のふたと前後が入れ替わるため）。
+ */
+export function createCutoutShadow(cfg: AnimalConfig, texture: THREE.Texture): THREE.Object3D {
+  const height = cfg.bodyHeight ?? 0.9;
+  const image = texture.image as { width?: number; height?: number } | null;
+  const width = height * ((image?.width ?? 1) / (image?.height ?? 1));
+
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    // **絵の色を出さない。** 黒く潰して輪郭だけにする
+    color: 0x000000,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const geo = new THREE.PlaneGeometry(width, height);
+  geo.translate(0, height / 2, 0);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.name = `shadow.${cfg.id}`;
+  const group = new THREE.Group();
+  group.add(mesh);
+  return group;
 }

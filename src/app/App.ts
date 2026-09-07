@@ -180,14 +180,18 @@ export class App {
       // 場面ごとの味つけ（2026-09-07）。音は App に集める
       // （**`Flavor` の中で音を鳴らさない**）
       next.flavor.onFootstep(() => this.audio.playOneShot('thud'));
-      // みんなで鳴く（§6 の〈中〉）。場所ごとに声の高さを変える。
-      // **押していないのに鳴る唯一の声**なので、ばあより控えめに聞こえるよう
-      // ピッチだけ振って、同じ「ばあっ！」を使う
-      next.flavor.onCall((_spot, pitch) => this.audio.playVoice('baa', pitch));
+      // みんなで鳴く（§6 の〈中〉）。場所ごとに高さを変える。
+      // **「ばあっ！」を使わないこと。** まだ隠れているのに「ばあっ」と
+      // 言うのは、いちばん紛らわしい間違いだった（2026-09-07 に実機で指摘）
+      next.flavor.onCall((_spot, pitch) => this.audio.playOneShot('peep', pitch));
       // もう1匹（§6 の〈大〉）。**声は出さない。**
       // 押していないのに「ばあっ！」と鳴ると、どれが自分の押した結果か
       // 分からなくなる。草をかき分ける音だけ返す
       next.flavor.onCameo(() => this.audio.playOneShot('rustle'));
+      // 順番待ちで出せなかったとき（2026-09-07 の「1体ずつ」）。
+      // **無反応にしない。** 波紋と「ぽん」は既に返しているので、
+      // ここは草をかき分ける音だけ足す（「いま順番だよ」の合図）
+      next.spots.onBusy(() => this.audio.playOneShot('rustle'));
     } finally {
       this.building = false;
     }
@@ -278,6 +282,7 @@ export class App {
         shadowSpotId: string | null;
         cameos: number;
         cameoSpotId: string | null;
+        cameoTaps: number;
       } | null => {
         const flavor = this.sceneRoot?.flavor;
         if (!flavor) return null;
@@ -296,6 +301,7 @@ export class App {
           shadowSpotId: flavor.getShadowSpotId(),
           cameos: flavor.getCameoCount(),
           cameoSpotId: flavor.getCameoSpotId(),
+          cameoTaps: flavor.getCameoTapCount(),
         };
       },
       getFrameCount: (): number => this.loop.frameCount,

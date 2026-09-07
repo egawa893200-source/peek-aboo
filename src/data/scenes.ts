@@ -205,7 +205,6 @@ const SOTO: SceneConfig = {
     crossing: "butterfly",
     crossingLands: true,
     wobble: true,
-    leftover: "flower",
   },
   label: "そと",
   mode: "hideout",
