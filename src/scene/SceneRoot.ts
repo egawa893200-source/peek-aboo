@@ -240,11 +240,13 @@ export class SceneRoot {
     // 残るもの（§6）。**隠れ場所そのものを たまご／つぼみ に入れ替える。**
     // 「小さな卵が横に残っているだけでは何の意味もない」と言われて、
     // 人間が決めた形（2026-09-07）。当たり判定は動かない（`worldPosition` 基準）
+    // **入れ替えた場所だけでなく、全部を置き直す。**
+    // たまごは元の隠れ場所より下まで伸びるので、下の段の動物の上限が変わる
     flavor.onLeftover((spot, kind) => {
-      if (spots.setShape(spot, kind)) animals.reanchor(spot);
+      if (spots.setShape(spot, kind)) animals.reanchorAll();
     });
     flavor.onLeftoverEnd((spot) => {
-      if (spots.setShape(spot, spot.config.kind)) animals.reanchor(spot);
+      if (spots.setShape(spot, spot.config.kind)) animals.reanchorAll();
     });
 
     // 影が先に映る（§6 の〈中〉）。**その動物の絵を黒く塗った板**を使う。

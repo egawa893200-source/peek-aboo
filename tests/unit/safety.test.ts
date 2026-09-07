@@ -215,10 +215,10 @@ function sceneRig(sceneId: string, seed = 12345, useCutouts = false): ChaseRig {
   // **`SceneRoot` と同じ配線。** ここを繋がないと、隠れ場所が
   // たまご／つぼみ に入れ替わらないまま検査してしまう
   flavor.onLeftover((spot, kind) => {
-    if (spots.setShape(spot, kind)) animals.reanchor(spot);
+    if (spots.setShape(spot, kind)) animals.reanchorAll();
   });
   flavor.onLeftoverEnd((spot) => {
-    if (spots.setShape(spot, spot.config.kind)) animals.reanchor(spot);
+    if (spots.setShape(spot, spot.config.kind)) animals.reanchorAll();
   });
 
   const camera = new THREE.PerspectiveCamera(66, 0.49, 0.05, 60);
@@ -1509,6 +1509,51 @@ describe('全場面 — どの場面でも不変条件が成り立つ', () => {
       }
     }
   );
+
+  it.each([
+    ...ALL_SCENES.map((id) => [id, false] as const),
+    ...ALL_SCENES.map((id) => [id, true] as const),
+  ])('%s（絵=%s）: 出きった動物が、ほかの隠れ場所に重ならない', (id, useCutouts) => {
+    // ==========================================================================
+    // **上の段の隠れ場所に覆いかぶさらないこと**（2026-09-07 に実機で指摘）。
+    // 「猿が『ばあっ！』すると上の隠れ場所と被っています」
+    //
+    // 出きった動物は縁より `height * OUT_LIFT` 上に出る。絵を隠れ場所いっぱいに
+    // 合わせた結果、下の段の動物が上の段に食い込んでいた。
+    // 実測（直す前）: さる→きげあーす 0.92×0.39 / きかぶ→おおいわ 1.04×0.45 /
+    // つぼ→かいそう 0.95×0.31 / ほら→くさ 1.19×0.05 / おけご→わら 0.73×0.19
+    // ==========================================================================
+    const { spots, animals, advance } = sceneRig(id, 12345, useCutouts);
+    advance(0.5);
+
+    const abox = new THREE.Box3();
+    const obox = new THREE.Box3();
+    for (const spot of spots.runtimes) {
+      const slot = animals.getSlot(spot.config.id);
+      if (!slot) continue;
+      spots.tap(spot);
+      // 出きったあと、癖（§6-2）が乗りきるところまで見る
+      advance(PEAK_AT_SEC + 0.5);
+      spots.group.updateWorldMatrix(true, true);
+
+      abox.makeEmpty();
+      for (const child of slot.built.group.children) {
+        if (child === slot.built.hint) continue;
+        abox.expandByObject(child);
+      }
+      for (const other of spots.runtimes) {
+        if (other === spot) continue;
+        obox.setFromObject(other.shape.group);
+        const ox = Math.min(abox.max.x, obox.max.x) - Math.max(abox.min.x, obox.min.x);
+        const oy = Math.min(abox.max.y, obox.max.y) - Math.max(abox.min.y, obox.min.y);
+        expect(
+          ox > 0 && oy > 0,
+          `${id}/${spot.config.id} が ${other.config.id} に ${ox.toFixed(2)}×${oy.toFixed(2)} 重なっている`
+        ).toBe(false);
+      }
+      advance(OUT_IDLE_SEC + HIDE_DUR_SEC + 0.3);
+    }
+  });
 
   it.each(HIDEOUT_SCENES)('%s: ヒントがカメラから遮られずに見えている', (id) => {
     const { spots, animals, camera, advance } = sceneRig(id);

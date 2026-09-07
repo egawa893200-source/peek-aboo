@@ -48,7 +48,7 @@ const GLOW_DECAY_SEC = 0.32;
  * そのまま隠れる。0.95 で全場面が通る。
  * **0 にしないこと。** 少しだけ埋まっていないと「そこから出てきた」に見えない
  */
-const OUT_LIFT = 0.95;
+const OUT_LIFT = 0.99;
 
 /**
  * 絵を貼った動物を、開口の幅の何倍まで大きくするか。
@@ -65,6 +65,17 @@ const FIT_WIDTH = 0.86;
  * 0.06 でも1箇所残り、0.10 で全部の場面が漏れなしになった
  */
 const FIT_MARGIN = 0.1;
+/** 出きった動物と、上の隠れ場所の下端とのすき間 */
+const CEILING_CLEAR = 0.08;
+/**
+ * 上限を決めるときの安全係数。
+ *
+ * 出きった動物は `height * OUT_LIFT` ぶん縁より上に出るが、実際には
+ * §6-1 の大きさのばらつき（最大 1.1倍）と、出たあとの癖（`idleMotion` で
+ * 最大 0.12ぶん上へ）が乗る。計算どおりに詰めると、その回だけ上の
+ * 隠れ場所に食い込む（実測でどうぶつえん・きょうりゅうに 0.11 残った）
+ */
+const OUT_TOP_SLACK = 1.3;
 
 /**
  * 隠れているとき、体の頭を縁より**どれだけ下**に沈めるか（ワールド）。
@@ -78,6 +89,19 @@ const FIT_MARGIN = 0.1;
  * 余裕を足して 0.06 にしてある。
  */
 export const HIDDEN_SINK = 0.06;
+/**
+ * さらに沈める量（`HIDDEN_SINK` の上に足す）。
+ *
+ * 隠れ場所を上下に広げた（±1.55/−1.20 → ±2.05/−1.75）ぶん、下の段を
+ * 見下ろす角度が深くなり、縁の上から頭が覗くようになった
+ * （ふとん で 3点、はち・つぼ で 1点ずつ）。
+ * **ヒントは同じだけ持ち上げる**ので、§4-2 の「縁から 15〜25% 見えている」は
+ * 変わらない。
+ *
+ * 0.06 まで沈めると、こんどは出きったときの見えている割合が 54% まで落ちた
+ * （判定は 55%）。0.04 ＋ `OUT_LIFT` 0.99 で両立する
+ */
+const EXTRA_SINK = 0.04;
 
 /** 視線を向けはじめる `reveal`（§4-3 の「0.50s 出きって、こちらを向く」） */
 const GAZE_FROM = 0.72;
@@ -188,12 +212,15 @@ export class AnimalSystem {
    * **空でも動く。** その場合は全部が手続き生成になる（不変条件7）
    */
   private readonly cutouts: ReadonlyMap<string, THREE.Texture>;
+  /** 上の隠れ場所にぶつからない大きさを決めるのに使う（`ceilingFor`） */
+  private readonly spots: SpotSystem;
 
   constructor(
     spots: SpotSystem,
     reducedMotion = detectReducedMotion(),
     cutouts: ReadonlyMap<string, THREE.Texture> = new Map()
   ) {
+    this.spots = spots;
     this.cutouts = cutouts;
     this.glowScale = reducedMotion ? 0.3 : 1;
 
@@ -296,6 +323,30 @@ export class AnimalSystem {
   }
 
   /**
+   * この隠れ場所のすぐ上にある隠れ場所の**下端**（ワールド）。無ければ Infinity。
+   *
+   * 出きった動物がここを越えると、上の段の隠れ場所に重なって見える。
+   * 横に離れている隠れ場所は数えない（重ならないため）。
+   */
+  private ceilingFor(spot: SpotRuntime): number {
+    let ceiling = Infinity;
+    for (const other of this.spots.runtimes) {
+      if (other === spot) continue;
+      if (other.worldPosition.y <= spot.worldPosition.y) continue;
+      // 横にずれていれば重ならない。**見かけの幅で見る**
+      const halfWidth = (spot.shape.mouthWidth + other.shape.mouthWidth) / 2;
+      if (Math.abs(other.worldPosition.x - spot.worldPosition.x) >= halfWidth) continue;
+      // **`coverBottomY` ではなく、実際の形の下端を測る。**
+      // 背板や鉢は `coverBottomY` より下まで伸びていて、
+      // 宣言値で計算した版では重なりが残った（さる で 0.73×0.11）
+      other.group.updateWorldMatrix(true, true);
+      _box.setFromObject(other.shape.group);
+      if (Number.isFinite(_box.min.y)) ceiling = Math.min(ceiling, _box.min.y);
+    }
+    return ceiling;
+  }
+
+  /**
    * 隠れ場所の見た目が入れ替わったあと、動物を置き直す（§6「残るもの」）。
    * **呼ばないと、たまごの縁から体がはみ出す**（高さも開口部も変わるため）
    */
@@ -304,17 +355,45 @@ export class AnimalSystem {
     if (slot) this.anchor(slot, spot);
   }
 
+  /**
+   * 全部を置き直す。
+   *
+   * **隠れ場所の見た目が入れ替わったら、その場所だけでは足りない。**
+   * たまごは元の隠れ場所より下まで伸びるので、**下の段の動物の上限**が変わる。
+   * 入れ替えた場所だけ置き直した版では、のうじょうの さく が
+   * こや（たまご）に 1.10×0.20 重なった（2026-09-07 の実測）
+   */
+  reanchorAll(): void {
+    for (const spot of this.spots.runtimes) this.reanchor(spot);
+  }
+
   /** 隠れ場所に合わせて、隠れる高さ・出きる高さ・ヒントの奥行きを決め直す */
   private anchor(slot: AnimalSlot, spot: SpotRuntime): void {
     // **絵を貼った動物は、隠れ場所ごとに大きさを決め直す。**
     // 固定の大きさにしていたら、開口 1.21〜1.29 に対して動物の幅が
     // 0.49〜0.70 しか無く、1歳半には小さすぎると言われた（実測）。
     // 幅は §4-2 の上限まで、高さは「隠れたときに縁の下へ収まる」まで
+    // 隠れたときに縁の下へ収まる高さ。**手続き生成の動物にも掛ける**
+    // （`config.scale` は沈める深さを知らないので、深くしたぶん下から出た）
+    const room = spot.shape.coverTopY - spot.shape.coverBottomY - HIDDEN_SINK - EXTRA_SINK - FIT_MARGIN;
+    const byHeight = room / slot.built.height;
     if (slot.built.autoFit) {
       const byWidth = (spot.shape.mouthWidth * FIT_WIDTH) / slot.built.width;
-      const room = spot.shape.coverTopY - spot.shape.coverBottomY - HIDDEN_SINK - FIT_MARGIN;
-      const byHeight = room / slot.built.height;
       slot.fitScale = Math.max(0.2, Math.min(byWidth, byHeight));
+    } else {
+      slot.fitScale = Math.max(0.2, Math.min(slot.fitScale, byHeight));
+    }
+    // **上の隠れ場所にぶつからないところまで縮める**（2026-09-07 の実測）。
+    // 出きった動物は縁より `height * OUT_LIFT` 上に出る。絵を隠れ場所いっぱいに
+    // 合わせた結果、下の段の動物が上の段の隠れ場所に覆いかぶさっていた
+    // （さる が どうぶつえん の きげあーす に 0.92×0.39 重なった。ほかに
+    //  そと・うみ・のうじょう・きょうりゅう でも起きていた）。
+    // **`config.scale` で決め打ちの動物にも掛ける**（縮める側にしか動かない）
+    const ceiling = this.ceilingFor(spot);
+    if (Number.isFinite(ceiling)) {
+      const roomUp = ceiling - CEILING_CLEAR - spot.worldPosition.y - spot.shape.coverTopY;
+      const maxScale = roomUp / (OUT_LIFT * OUT_TOP_SLACK * slot.built.height);
+      slot.fitScale = Math.max(0.2, Math.min(slot.fitScale, maxScale));
     }
     const scale = slot.fitScale;
     slot.built.group.scale.setScalar(scale);
@@ -323,7 +402,12 @@ export class AnimalSystem {
     // 隠れている位置。**体のてっぺんが、ちょうど縁と同じ高さ。**
     // ヒントは体のてっぺんに生えているので、そのぶんだけが縁の上に残る。
     // 縁より少し下に沈める（見下ろす角度で頭が覗かないように。上の定数を読むこと）
-    slot.hiddenY = slot.coverTopY - h - HIDDEN_SINK;
+    slot.hiddenY = slot.coverTopY - h - HIDDEN_SINK - EXTRA_SINK;
+    // **余分に沈めたぶんだけ、ヒントを持ち上げる。**
+    // 縁から出る量（§4-2 の 15〜25%）は、沈める深さと独立でなければならない。
+    // `HIDDEN_SINK`（0.06）は §4-2 の実測に使った基準なので動かさず、
+    // それを超えて沈めたぶん（`EXTRA_SINK`）だけ戻す
+    slot.built.hint.position.y = slot.built.height + EXTRA_SINK / scale;
     // 出きった位置。少しだけ縁に埋めておくと「そこから出てきた」に見える
     slot.outY = slot.coverTopY - h * (1 - OUT_LIFT);
 
@@ -587,20 +671,25 @@ function motionOf(style: AnimalStyle, t: number): { x: number; y: number; tilt: 
       //
       // **下には行かせない。** `sin` で作った版は後半で下がり、
       // りす（peek）が岩に沈んで体の見えている割合が 53% まで落ちた
-      // （判定は 55%）。上がって戻るだけなら、必ず今より見えている
-      return { x: 0, y: (1 - Math.cos((t / 1.4) * Math.PI * 2)) * 0.5 * 0.12, tilt: 0 };
+      // （判定は 55%）。上がって戻るだけなら、必ず今より見えている。
+      //
+      // 0.12 では実機で「相変わらず普通に出現している」と言われた（2026-09-07）。
+      // 上へ伸びるぶんは、上の隠れ場所との重なりを `OUT_TOP_SLACK` が
+      // 見込んであるので、体の高さの 0.26 まで出せる
+      return { x: 0, y: (1 - Math.cos((t / 1.4) * Math.PI * 2)) * 0.5 * 0.26, tilt: 0 };
     case 'slide':
       // ぞう。**鼻で探すように、左右へゆっくり。**
       // 横に**動かす**版（±0.10）は、隠れ場所の縁に食われて
       // 体の見えている割合が 53% まで落ちた（判定は 55%）。
-      // **傾ける**なら中心が動かないので、縁に食われない
-      return { x: 0, y: 0, tilt: Math.sin((t / 1.2) * Math.PI * 2) * 0.14 };
+      // **傾ける**なら中心が動かないので、縁に食われない。
+      // 0.14rad（8°）では気づかれなかったので 0.30rad（17°）にした
+      return { x: 0, y: 0, tilt: Math.sin((t / 1.15) * Math.PI * 2) * 0.3 };
     case 'flip':
       // さる。**跳ねる。** 短い周期で小さく上下
-      return { x: 0, y: Math.abs(Math.sin((t / 0.55) * Math.PI)) * 0.07, tilt: 0 };
+      return { x: 0, y: Math.abs(Math.sin((t / 0.5) * Math.PI)) * 0.12, tilt: 0 };
     case 'spin':
       // ゆっくり首をかしげる
-      return { x: 0, y: 0, tilt: Math.sin((t / 1.6) * Math.PI * 2) * 0.12 };
+      return { x: 0, y: 0, tilt: Math.sin((t / 1.6) * Math.PI * 2) * 0.2 };
     default:
       // pop は動かない。**全部に癖をつけない**（全部動くと誰も目立たない）
       return { x: 0, y: 0, tilt: 0 };
