@@ -163,13 +163,16 @@ interface Palette {
  */
 const PALETTES: Record<SpotKind, Palette> = {
   box: { body: 0xc08a52, cover: 0xd8a86b, accent: 0x8c5f33 },
-  door: { body: 0xe4d6bd, cover: 0xcbb693, accent: 0x8a7550 },
-  curtain: { body: 0x9a3b45, cover: 0xc45361, accent: 0xe0c268 },
-  bush: { body: 0x4a8f43, cover: 0x63ad55, accent: 0x35682f },
-  rock: { body: 0x7a7f86, cover: 0x969ba3, accent: 0x585d64 },
+  door: { body: 0xe8d3ae, cover: 0xd4b285, accent: 0x8a7048 },
+  curtain: { body: 0x9c4b52, cover: 0xbc6670, accent: 0xdcc079 },
+  bush: { body: 0x568a52, cover: 0x6fa563, accent: 0x40663c },
+  // **灰色そのままにしない**（2026-09-07）。彩度 C\* が 3 しかなく、
+  // 人が描いた背景（そと 45.07・きょうりゅう 30 台）の中で
+  // 「そこだけ色が抜けている」ように見えていた。実際の岩も土の色を持つ
+  rock: { body: 0x8b8174, cover: 0xaba090, accent: 0x625749 },
   water: { body: 0x2f6f96, cover: 0x4a97bf, accent: 0x9fd8ea },
-  blanket: { body: 0xdfe6ef, cover: 0x5a86c4, accent: 0x3f6091 },
-  hollow: { body: 0x6b4a30, cover: 0x8a6440, accent: 0x3f2c1c },
+  blanket: { body: 0xdfe6ef, cover: 0x4f83cc, accent: 0x3f6091 },
+  hollow: { body: 0x74492a, cover: 0x986a3c, accent: 0x432c18 },
   pot: { body: 0xc4653f, cover: 0xdc7c53, accent: 0x6f4326 },
   // §6「残るもの」。**隠れ場所そのものが入れ替わる**（2026-09-07 に人間が決めた）
   egg: { body: 0xf1e3c6, cover: 0xf7efdc, accent: 0xc9a97a },

@@ -186,3 +186,52 @@ export function createBackdropImage(texture: THREE.Texture): THREE.Mesh {
   mesh.rotation.x = -0.12;
   return mesh;
 }
+
+/**
+ * 背景の絵から、上半分と下半分の平均色を取る。
+ *
+ * そのまま `HemisphereLight(sky, ground)` に入れる。
+ * 空から降る光は絵の上半分の色、地面から返る光は下半分の色 ——
+ * という当たり前のことを、絵から読むだけで場面ごとに合わせられる。
+ *
+ * **絵が無い場面では `SceneConfig.sky` に落ちる**（不変条件7）。
+ * `document` が無い環境（単体テスト）でも null を返して黙って進む。
+ */
+export function sampleBackdropLight(
+  texture: THREE.Texture
+): { sky: THREE.Color; ground: THREE.Color } | null {
+  if (typeof document === 'undefined') return null;
+  const image = texture.image as CanvasImageSource | null;
+  if (!image) return null;
+  const canvas = document.createElement('canvas');
+  const N = 16;
+  canvas.width = N;
+  canvas.height = N;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  try {
+    ctx.drawImage(image, 0, 0, N, N);
+  } catch {
+    // 読めない絵でも例外を投げない（不変条件7）
+    return null;
+  }
+  const data = ctx.getImageData(0, 0, N, N).data;
+  const mean = (from: number, to: number): THREE.Color => {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (let y = from; y < to; y++) {
+      for (let x = 0; x < N; x++) {
+        const i = (y * N + x) * 4;
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
+        n++;
+      }
+    }
+    // 絵は sRGB。ライトの色も sRGB で渡す
+    return new THREE.Color().setRGB(r / n / 255, g / n / 255, b / n / 255, THREE.SRGBColorSpace);
+  };
+  return { sky: mean(0, N / 2), ground: mean(N / 2, N) };
+}

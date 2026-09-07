@@ -29,7 +29,7 @@ import { QualityManager } from '../core/QualityManager';
 import { Renderer } from '../core/Renderer';
 import { ScreenProjector } from '../core/ScreenProjector';
 import { WakeLock } from '../core/WakeLock';
-import { LIGHTS } from '../data/look';
+import { LIGHTS, SCENE_LIGHT_TINT } from '../data/look';
 import { DEFAULT_SCENE_ID, findScene, SCENES } from '../data/scenes';
 import type { SpotRuntime, SpotSnapshot } from '../peekaboo/SpotSystem';
 import { Surprise } from '../peekaboo/Surprise';
@@ -58,6 +58,16 @@ export class App {
   private readonly projector: ScreenProjector;
   private readonly gate: ParentalGate;
   private readonly scene = new THREE.Scene();
+  /**
+   * 場面ごとに色を変える光。**絵そのものには当たらない**
+   * （背景も動物も `MeshBasicMaterial`）ので、色が変わるのは隠れ場所と飾りだけ。
+   */
+  private readonly key: THREE.DirectionalLight;
+  private readonly hemi: THREE.HemisphereLight;
+  /** 白い光。場面の色へ寄せるときの元にする */
+  private readonly keyBase = new THREE.Color(LIGHTS.key.color);
+  private readonly hemiSkyBase = new THREE.Color(LIGHTS.hemi.sky);
+  private readonly hemiGroundBase = new THREE.Color(LIGHTS.hemi.ground);
   /**
    * §6-3 のサプライズ。**場面をまたいで使い回す**（カメラの子なので、
    * 場面を作り直すたびに付け替える必要がない）
@@ -94,10 +104,11 @@ export class App {
     // 光。**数値は `data/look.ts` に外出ししてある**（見た目の調整は
     // 「1つ変えて撮って測る」を繰り返すので、値が散らばると追えなくなる）。
     // **顔と目が見えることが最重要**（§4-4）なので、真上ではなく少し手前から当てる。
-    const key = new THREE.DirectionalLight(LIGHTS.key.color, LIGHTS.key.intensity);
-    key.position.set(...LIGHTS.key.position);
-    this.scene.add(key);
-    this.scene.add(new THREE.HemisphereLight(LIGHTS.hemi.sky, LIGHTS.hemi.ground, LIGHTS.hemi.intensity));
+    this.key = new THREE.DirectionalLight(LIGHTS.key.color, LIGHTS.key.intensity);
+    this.key.position.set(...LIGHTS.key.position);
+    this.scene.add(this.key);
+    this.hemi = new THREE.HemisphereLight(LIGHTS.hemi.sky, LIGHTS.hemi.ground, LIGHTS.hemi.intensity);
+    this.scene.add(this.hemi);
 
     // §6-3 のサプライズは**カメラの子**にする。カメラ空間に置けば、
     // 画面のどこにどれだけの大きさで出るかが素直に決まる。
@@ -145,6 +156,16 @@ export class App {
       this.sceneRoot = next;
       this.sceneId = config.id;
       this.scene.add(next.group);
+
+      // 場面の光の色を、背景の絵から読んだ空と地の色へ寄せる。
+      // **絵には当たらない**（背景も動物も `MeshBasicMaterial`）ので、
+      // 色が変わるのは隠れ場所と手続き生成の飾りだけ。
+      // 白いままだと、うみ（青い水中）でも きょうりゅう（橙の夕景）でも
+      // 隠れ場所に同じ光が当たり、絵と「別の場所のもの」に見えていた
+      this.hemi.color.copy(this.hemiSkyBase).lerp(next.ambient.sky, SCENE_LIGHT_TINT);
+      this.hemi.groundColor.copy(this.hemiGroundBase).lerp(next.ambient.ground, SCENE_LIGHT_TINT);
+      // 主光は**半分だけ**寄せる。ここまで染めると陰影の向きが読めなくなる
+      this.key.color.copy(this.keyBase).lerp(next.ambient.sky, SCENE_LIGHT_TINT * 0.5);
 
       // 「ばあっ！」は登場の山（0.35秒後）で鳴る。押した瞬間ではない（§4-3）。
       // 連打で呼ばれたときは押した瞬間に鳴る（不変条件2「声とアピールは必ず返す」）。

@@ -28,6 +28,7 @@ import {
   createBackdropTexture,
   createContactShadow,
   createShadowTexture,
+  sampleBackdropLight,
 } from './Backdrop';
 import { DROP_SHADOW } from '../data/look';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
@@ -63,6 +64,13 @@ export class SceneRoot {
   private shadowShapes: Map<string, THREE.Object3D> | null = null;
   /** 足あとを落とす間隔の積算（§6 の〈中〉） */
   private footprintT = 0;
+
+  /**
+   * この場面の光の色（背景の絵から読んだ、上半分と下半分の平均色）。
+   * `App` がこれを `HemisphereLight` に渡す。**絵そのものには光を当てない**
+   * （背景も動物も `MeshBasicMaterial`）ので、変わるのは隠れ場所と飾りだけ。
+   */
+  readonly ambient: { sky: THREE.Color; ground: THREE.Color };
 
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
@@ -108,8 +116,10 @@ export class SceneRoot {
     shadowTexture: THREE.Texture | null,
     shadowRectTexture: THREE.Texture | null,
     shadows: readonly THREE.Mesh[],
-    cutouts: ReadonlyMap<string, THREE.Texture>
+    cutouts: ReadonlyMap<string, THREE.Texture>,
+    ambient: { sky: THREE.Color; ground: THREE.Color }
   ) {
+    this.ambient = ambient;
     this.cutouts = cutouts;
     this.backdrop = backdrop;
     this.shadowTexture = shadowTexture;
@@ -184,6 +194,14 @@ export class SceneRoot {
     // 別の板に貼る（うしろにグラデーションの板が残るので、横持ちでも
     // 地の色は出ない）。**光を当てない**ので、描いたとおりの色が出る
     const backdropImage = background ? createBackdropImage(background) : null;
+
+    // 場面の光の色。**絵から読む**（`SCENE_LIGHT_TINT` の理由を参照）。
+    // 絵が無ければ `SceneConfig.sky` の2色に落ちる（不変条件7）
+    const sampled = background ? sampleBackdropLight(background) : null;
+    const ambient = sampled ?? {
+      sky: new THREE.Color(sky[0]),
+      ground: new THREE.Color(sky[1]),
+    };
 
     // 絵をそのまま貼る動物（道A）の素材を、場面ぶんまとめて読む。
     // **1枚でも読めなければ、その動物だけ手続き生成に落ちる**（不変条件7）。
@@ -316,7 +334,7 @@ export class SceneRoot {
       }
     }
 
-    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient);
     root.cameo = cameoBuilt;
     root.shadowShapes = shadowShapes;
     return root;
