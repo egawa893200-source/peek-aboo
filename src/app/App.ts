@@ -29,7 +29,7 @@ import { QualityManager } from '../core/QualityManager';
 import { Renderer } from '../core/Renderer';
 import { ScreenProjector } from '../core/ScreenProjector';
 import { WakeLock } from '../core/WakeLock';
-import { LIGHTS, SCENE_LIGHT_TINT } from '../data/look';
+import { LIGHTS, SCENE_LIGHT_TINT, SUN_FOLLOW } from '../data/look';
 import { DEFAULT_SCENE_ID, findScene, SCENES } from '../data/scenes';
 import type { SpotRuntime, SpotSnapshot } from '../peekaboo/SpotSystem';
 import { Surprise } from '../peekaboo/Surprise';
@@ -164,6 +164,22 @@ export class App {
       // 隠れ場所に同じ光が当たり、絵と「別の場所のもの」に見えていた
       this.hemi.color.copy(this.hemiSkyBase).lerp(next.ambient.sky, SCENE_LIGHT_TINT);
       this.hemi.groundColor.copy(this.hemiGroundBase).lerp(next.ambient.ground, SCENE_LIGHT_TINT);
+      // 主光の向きを、背景の絵のいちばん明るいところに寄せる。
+      // きょうりゅう の夕日は画面の左下にあるのに、どの場面でも左上から
+      // 当てていて、判定に「太陽と反対向きに陰を持っている」と言われた。
+      // **下からは当てない**（`SUN_FOLLOW.minUp`）
+      if (next.sun) {
+        const wantX = (next.sun.u - 0.5) * 2;
+        const wantY = Math.max(SUN_FOLLOW.minUp, (0.5 - next.sun.v) * 2);
+        this.key.position.set(
+          LIGHTS.key.position[0] * (1 - SUN_FOLLOW.amount) + wantX * 1.4 * SUN_FOLLOW.amount,
+          LIGHTS.key.position[1] * (1 - SUN_FOLLOW.amount) + wantY * 1.4 * SUN_FOLLOW.amount,
+          LIGHTS.key.position[2]
+        );
+      } else {
+        this.key.position.set(...LIGHTS.key.position);
+      }
+
       // 主光は**半分だけ**寄せる。ここまで染めると陰影の向きが読めなくなる
       this.key.color.copy(this.keyBase).lerp(next.ambient.sky, SCENE_LIGHT_TINT * 0.5);
 

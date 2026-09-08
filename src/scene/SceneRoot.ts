@@ -29,6 +29,7 @@ import {
   createContactShadow,
   createShadowTexture,
   sampleBackdropLight,
+  sampleBackdropSun,
 } from './Backdrop';
 import { DROP_SHADOW } from '../data/look';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
@@ -71,6 +72,12 @@ export class SceneRoot {
    * （背景も動物も `MeshBasicMaterial`）ので、変わるのは隠れ場所と飾りだけ。
    */
   readonly ambient: { sky: THREE.Color; ground: THREE.Color };
+
+  /**
+   * 背景の絵のいちばん明るいところ（0〜1 の u, v）。`App` が主光の向きに使う。
+   * 絵が無ければ null（不変条件7）。
+   */
+  readonly sun: { u: number; v: number } | null;
 
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
@@ -117,9 +124,11 @@ export class SceneRoot {
     shadowRectTexture: THREE.Texture | null,
     shadows: readonly THREE.Mesh[],
     cutouts: ReadonlyMap<string, THREE.Texture>,
-    ambient: { sky: THREE.Color; ground: THREE.Color }
+    ambient: { sky: THREE.Color; ground: THREE.Color },
+    sun: { u: number; v: number } | null
   ) {
     this.ambient = ambient;
+    this.sun = sun;
     this.cutouts = cutouts;
     this.backdrop = backdrop;
     this.shadowTexture = shadowTexture;
@@ -202,6 +211,9 @@ export class SceneRoot {
       sky: new THREE.Color(sky[0]),
       ground: new THREE.Color(sky[1]),
     };
+    // 主光の向き。**絵のいちばん明るいところ**に寄せる（`SUN_FOLLOW`）。
+    // 絵が無ければ null で、`App` が既定の向きのままにする
+    const sun = background ? sampleBackdropSun(background) : null;
 
     // 絵をそのまま貼る動物（道A）の素材を、場面ぶんまとめて読む。
     // **1枚でも読めなければ、その動物だけ手続き生成に落ちる**（不変条件7）。
@@ -334,7 +346,7 @@ export class SceneRoot {
       }
     }
 
-    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient, sun);
     root.cameo = cameoBuilt;
     root.shadowShapes = shadowShapes;
     return root;

@@ -235,3 +235,45 @@ export function sampleBackdropLight(
   };
   return { sky: mean(0, N / 2), ground: mean(N / 2, N) };
 }
+
+/**
+ * 背景の絵の**いちばん明るいところ**を返す（0〜1 の u, v）。
+ *
+ * ==========================================================================
+ * 場面ごとに主光の向きを合わせるために使う。
+ * きょうりゅう の夕日は画面の**左下**（実測 x=34, y=411）にあるのに、
+ * 主光はどの場面でも左上に固定で、判定に
+ * 「太陽より上に浮いている物体が、太陽と反対向きに陰を持っている」
+ * と言われた（2026-09-08）。
+ *
+ * **絵に光を当てているわけではない**（背景も動物も `MeshBasicMaterial`）。
+ * 向きが変わるのは隠れ場所と手続き生成の飾りだけ。
+ * ==========================================================================
+ */
+export function sampleBackdropSun(texture: THREE.Texture): { u: number; v: number } | null {
+  if (typeof document === 'undefined') return null;
+  const image = texture.image as CanvasImageSource | null;
+  if (!image) return null;
+  const N = 24;
+  const canvas = document.createElement('canvas');
+  canvas.width = N;
+  canvas.height = N;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  try {
+    ctx.drawImage(image, 0, 0, N, N);
+  } catch {
+    return null;
+  }
+  const data = ctx.getImageData(0, 0, N, N).data;
+  let best = -1;
+  let at = 0;
+  for (let i = 0; i < N * N; i++) {
+    const v = data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2];
+    if (v > best) {
+      best = v;
+      at = i;
+    }
+  }
+  return { u: ((at % N) + 0.5) / N, v: (Math.floor(at / N) + 0.5) / N };
+}
