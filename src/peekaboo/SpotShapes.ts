@@ -713,14 +713,22 @@ function createBush(p: Palette, seed: number): SpotShape {
     for (let i = 0; i < blobs.length; i++) {
       const blob = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), leaf);
       blob.name = `bush.leaf.${side < 0 ? 'l' : 'r'}.${i}`;
-      const grow = 1 + rng() * 0.14;
-      blob.scale.set(HALF_W * 0.42 * grow, HALF_H * blobs[i][3] * grow, 0.14);
+      // **振り幅を大きく取ること。** ±0.035 の位置と +14% の大きさでは、
+      // 判定に「5株とも輪郭の4つの塊の並びも上のトゲの生え方も同一で、
+      // 違うのは表面の斑点の位置だけ」と2回続けて言われた。
+      // 大きさは**大きくする側にしか振らない**（縮めると隙間が開く）
+      const grow = 1 + rng() * 0.3;
+      blob.scale.set(
+        HALF_W * 0.42 * grow * (0.9 + rng() * 0.25),
+        HALF_H * blobs[i][3] * grow,
+        0.14
+      );
       blob.position.set(
-        blobs[i][0] + (rng() - 0.5) * 0.07,
-        blobs[i][1] + (rng() - 0.5) * 0.07,
+        blobs[i][0] + (rng() - 0.5) * 0.16,
+        blobs[i][1] + (rng() - 0.5) * 0.14,
         FRONT_Z + blobs[i][2]
       );
-      blob.rotation.z = (rng() - 0.5) * 0.5;
+      blob.rotation.z = (rng() - 0.5) * 0.9;
       bunch.add(blob);
     }
     // **中央でしっかり重ねる。** 0.03 しか寄せていなかったときは、
