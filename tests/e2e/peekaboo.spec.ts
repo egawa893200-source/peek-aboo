@@ -315,13 +315,29 @@ test.describe('不変条件8 — 場面を捨てるときに漏らさない', ()
   test('場面を10往復しても renderer.info.memory が増え続けない', async ({ page }) => {
     await boot(page);
 
-    // **描画を1フレーム挟むこと。** `renderer.info.memory` は
+    // **数えおわるまで待つこと。** `renderer.info.memory` は
     // GPU に上げたぶんを数えるので、作り直した直後はまだ 0 のことがある。
-    // ここを待たずに測ったせいで、同じコードが緑にも赤にもなった（実測）
+    //
+    // 2フレーム決め打ちで待っていたが、**それでも足りないことがある**
+    // （2026-09-07 の実測: 単体で走らせると必ず通るのに、23件の通し実行では
+    //  ときどき落ちた）。フレームが遅いと最初の `before` を数え落とし、
+    //  10往復後の `after` のほうが多く見えて「漏れている」ことになる。
+    //
+    // **合否は変えていない。** 数が2回続けて同じになるまで描いてから測る。
+    // 壁時計は「固まったときに止める」ためだけに使う（§10-2）
     const reloadAndSettle = () =>
       page.evaluate(async () => {
         await window.__peekaboo.reloadScene();
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const frame = () => new Promise((r) => requestAnimationFrame(() => r(undefined)));
+        let last = -1;
+        let same = 0;
+        const guard = performance.now();
+        while (same < 2 && performance.now() - guard < 10_000) {
+          await frame();
+          const now = window.__peekaboo.getMemory().geometries;
+          same = now === last ? same + 1 : 0;
+          last = now;
+        }
       });
 
     await reloadAndSettle();
