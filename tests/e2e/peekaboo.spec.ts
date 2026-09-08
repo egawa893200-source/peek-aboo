@@ -513,8 +513,16 @@ test.describe('§4-6 空の隠れ場所（不変条件3b）', () => {
         let startedAt = -1;
         // 揺れはじめてから 1.0秒たったところでも、まだ揺れているか
         let after1s = -1;
+        // **待つ長さも壁時計で決めないこと**（§10-2 / CLAUDE.md）。
+        // 壁時計 12000ms で待っていたが、描画が重くなると 1周（更新時計 4.80秒）に
+        // 届かない回ができて、同じコードが緑にも赤にもなった（2026-09-08 に実測）。
+        // 更新時計で待ち、壁時計は「固まったときに止める」ためだけに使う
         const wall0 = performance.now();
-        while (performance.now() - wall0 < 12000) {
+        const waitFrom = api.getSimulatedSeconds();
+        while (
+          api.getSimulatedSeconds() - waitFrom < 8.0 &&
+          performance.now() - wall0 < 60_000
+        ) {
           await new Promise((r) => requestAnimationFrame(r));
           const v = shakeOf();
           max = Math.max(max, v);
@@ -553,7 +561,12 @@ test.describe('§4-5 移動モード', () => {
       const sim0 = api.getSimulatedSeconds();
       const wall0 = performance.now();
       api.tap(start.x, start.y);
-      while (performance.now() - wall0 < 12000) {
+      // **待つ長さも壁時計で決めないこと**（§10-2）。1周は更新時計で 4.80秒だが、
+      // 壁時計 12000ms では描画が重い日に届かず、同じコードが赤になった（実測）
+      while (
+        api.getSimulatedSeconds() - sim0 < 8.0 &&
+        performance.now() - wall0 < 60_000
+      ) {
         await new Promise((r) => requestAnimationFrame(r));
         if (api.getChase()!.laps >= 1) break;
       }
@@ -683,7 +696,11 @@ test.describe('§4-5 移動モード', () => {
       const sim0 = api.getSimulatedSeconds();
       const wall0 = performance.now();
       api.tap(start.x, start.y);
-      while (performance.now() - wall0 < 12000) {
+      // 同上。待つのは更新時計、壁時計は固まったときに止めるためだけ（§10-2）
+      while (
+        api.getSimulatedSeconds() - sim0 < 8.0 &&
+        performance.now() - wall0 < 60_000
+      ) {
         await new Promise((r) => requestAnimationFrame(r));
         const c = api.getChase()!;
         const key = c.laps >= 1 ? 'done' : c.phase;
