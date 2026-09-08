@@ -45,7 +45,7 @@ export const LIGHTS = {
  * 傾きが割れ目でリセットされ、段差が出る。
  */
 export const FORM_SHADING = {
-  lift: 0.30,
+  lift: 0.50,
   depth: 0.18,
   /**
    * 光の側（左）を明るく、反対（右）を暗く。

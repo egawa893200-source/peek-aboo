@@ -223,7 +223,7 @@ export function createSpotShape(kind: SpotKind, spotY = 0, spotX = 0): SpotShape
   const seed = (Math.round((spotX + 8) * 977) * 131 + Math.round((spotY + 8) * 977)) >>> 0;
   const shape = buildSpotShape(kind, spotY, spotX, seed);
   fitBackPlates(shape, kind);
-  applySurface(shape.group, kind, seed);
+  applySurface(shape, kind, seed);
   return shape;
 }
 
@@ -360,18 +360,32 @@ const _shadeVec = new THREE.Vector3();
  * 傾きが割れ目でリセットされ、そこに段差が出る。
  * ==========================================================================
  */
-function applySurface(group: THREE.Group, kind: SpotKind, seed: number): void {
+function applySurface(shape: SpotShape, kind: SpotKind, seed: number): void {
+  const group = shape.group;
   const surface = createSurfaceTexture(kind, seed);
   const touched = new Set<THREE.Material>();
 
   group.updateMatrixWorld(true);
   _shadeBox.setFromObject(group);
   const minX = _shadeBox.min.x;
-  const minY = _shadeBox.min.y;
   const minZ = _shadeBox.min.z;
   const spanX = Math.max(1e-6, _shadeBox.max.x - minX);
-  const spanY = Math.max(1e-6, _shadeBox.max.y - minY);
   const spanZ = Math.max(1e-6, _shadeBox.max.z - minZ);
+  // ==========================================================================
+  // **縦の勾配は「外接箱」ではなく「縁の範囲」で割る**（2026-09-08）。
+  //
+  // きのほら は幹の柱が H×2.0、とびら は柱と鴨居があるので、外接箱は
+  // 前板の2倍ほどの高さになる。そこで割ると**前板の中では勾配がほとんど
+  // 乗らない**（実測: 上30%と下30%の差が きのほら +1.1、きかぶ +1.5、
+  // はこ +1.7。丸い岩は +10.6 出ている）。
+  // 判定にも「板1本を 170px 縦にたどっても L* が 0.4 しか動かない」と
+  // 名指しされた。
+  //
+  // 縁の上端と下端で割れば、どの隠れ場所でも**面に同じだけ勾配が乗る**。
+  // 縁より上（ふた・柱）と下へはそのまま伸ばす（そこは明るく／暗くなる）。
+  // ==========================================================================
+  const minY = shape.coverBottomY;
+  const spanY = Math.max(0.2, shape.coverTopY - shape.coverBottomY);
 
   group.traverse((object) => {
     const mesh = object as THREE.Mesh;

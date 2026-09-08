@@ -23,3 +23,9 @@ dist-ssr/
 # 確認用に撮った画面写真は、どれも撮り直せる。
 # **残すのは記録だけ**（match-score.json と pose/index.json）
 /capture/*.png
+
+# 見た目の採点で撮る「いま」の絵は `npm run visual:shot` で撮り直せる。
+# **baseline の絵だけ残す**（改善前の記録で、いまのコードからは撮り直せない）。
+# 数値の記録（score.json / shot.json）は両方とも残す
+/capture/visual/**/*.png
+!/capture/visual/baseline/*.png
