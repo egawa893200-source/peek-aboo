@@ -29,9 +29,10 @@ import {
   createContactShadow,
   createShadowTexture,
   sampleBackdropLight,
+  sampleBackdropHorizon,
   sampleBackdropSun,
 } from './Backdrop';
-import { DROP_SHADOW } from '../data/look';
+import { DROP_SHADOW, SKY_SHADOW_FADE } from '../data/look';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
 
 /** 行き先の隠れ場所からこれだけ離れていないと、足あとを落とさない */
@@ -79,6 +80,9 @@ export class SceneRoot {
    */
   readonly sun: { u: number; v: number } | null;
 
+  /** 背景の絵の地平線（ワールドの y）。空に掛かる影を弱めるのに使う */
+  private readonly horizonY: number | null;
+
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
    * **`AssetLoader` が持っているので、ここでは捨てない**
@@ -125,8 +129,10 @@ export class SceneRoot {
     shadows: readonly THREE.Mesh[],
     cutouts: ReadonlyMap<string, THREE.Texture>,
     ambient: { sky: THREE.Color; ground: THREE.Color },
-    sun: { u: number; v: number } | null
+    sun: { u: number; v: number } | null,
+    horizonY: number | null
   ) {
+    this.horizonY = horizonY;
     this.ambient = ambient;
     this.sun = sun;
     this.cutouts = cutouts;
@@ -214,6 +220,16 @@ export class SceneRoot {
     // 主光の向き。**絵のいちばん明るいところ**に寄せる（`SUN_FOLLOW`）。
     // 絵が無ければ null で、`App` が既定の向きのままにする
     const sun = background ? sampleBackdropSun(background) : null;
+    // 地平線（ワールドの y）。空に掛かる影を弱めるために使う。
+    // 絵が無い場面・地面の無い絵（うみ）では null
+    let horizonY: number | null = null;
+    if (background && backdropImage) {
+      const v = sampleBackdropHorizon(background);
+      if (v !== null) {
+        const plane = backdropImage.geometry as THREE.PlaneGeometry;
+        horizonY = (0.5 - v) * plane.parameters.height;
+      }
+    }
 
     // 絵をそのまま貼る動物（道A）の素材を、場面ぶんまとめて読む。
     // **1枚でも読めなければ、その動物だけ手続き生成に落ちる**（不変条件7）。
@@ -346,7 +362,7 @@ export class SceneRoot {
       }
     }
 
-    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient, sun);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient, sun, horizonY);
     root.cameo = cameoBuilt;
     root.shadowShapes = shadowShapes;
     return root;
@@ -415,6 +431,11 @@ export class SceneRoot {
       const texture = round ? this.shadowTexture : this.shadowRectTexture;
       if (texture) (shadow.material as THREE.MeshBasicMaterial).map = texture;
       shadow.position.set(DROP_SHADOW.offsetX / depth, localY, DROP_SHADOW.z);
+
+      // **空には影を落とさない。** 地平線より上にある隠れ場所の影は、
+      // 背景の絵の空の上に灰色のにじみとして乗る（`SKY_SHADOW_FADE`）
+      const overSky = this.horizonY !== null && _shadowAt.y + centerY > this.horizonY;
+      (shadow.material as THREE.MeshBasicMaterial).opacity = overSky ? SKY_SHADOW_FADE : 1;
     }
   }
 

@@ -277,3 +277,55 @@ export function sampleBackdropSun(texture: THREE.Texture): { u: number; v: numbe
   }
   return { u: ((at % N) + 0.5) / N, v: (Math.floor(at / N) + 0.5) / N };
 }
+
+/**
+ * 背景の絵の**地平線**を探す（0〜1 の v。見つからなければ null）。
+ *
+ * 絵を横方向に潰して行ごとの明るさにし、上下の行でいちばん大きく変わるところを
+ * 地平線とみなす。段差が小さい絵（水中など「地面が無い」場面）では null を返す。
+ *
+ * 空に落ちる影を弱めるために使う。判定の実測（2026-09-08）で、
+ * のうじょう の こや の影の **52.6%（20,327px）が地平線より上の空**に落ち、
+ * きょうりゅう では夕焼け空の中に三日月形の暗がりが描かれていた。
+ * **空には物が無いので、影も落ちない。**
+ */
+export function sampleBackdropHorizon(texture: THREE.Texture): number | null {
+  if (typeof document === 'undefined') return null;
+  const image = texture.image as CanvasImageSource | null;
+  if (!image) return null;
+  const COLS = 8;
+  const ROWS = 48;
+  const canvas = document.createElement('canvas');
+  canvas.width = COLS;
+  canvas.height = ROWS;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  try {
+    ctx.drawImage(image, 0, 0, COLS, ROWS);
+  } catch {
+    return null;
+  }
+  const data = ctx.getImageData(0, 0, COLS, ROWS).data;
+  const rows = new Float32Array(ROWS);
+  for (let y = 0; y < ROWS; y++) {
+    let sum = 0;
+    for (let x = 0; x < COLS; x++) {
+      const i = (y * COLS + x) * 4;
+      sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    }
+    rows[y] = sum / COLS;
+  }
+  let best = 0;
+  let at = -1;
+  // 端は絵の枠の影響を受けるので見ない
+  for (let y = ROWS * 0.2; y < ROWS * 0.85 - 1; y++) {
+    const step = rows[y] - rows[y + 1];
+    if (step > best) {
+      best = step;
+      at = y;
+    }
+  }
+  // 段差が小さい絵（うみ のように地面が無いもの）では地平線を決めない
+  if (at < 0 || best < 14) return null;
+  return (at + 1) / ROWS;
+}
