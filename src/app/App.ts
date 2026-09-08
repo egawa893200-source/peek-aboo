@@ -109,6 +109,10 @@ export class App {
     this.scene.add(this.key);
     this.hemi = new THREE.HemisphereLight(LIGHTS.hemi.sky, LIGHTS.hemi.ground, LIGHTS.hemi.intensity);
     this.scene.add(this.hemi);
+    // 補助光。主光と反対側から弱く当てて、右を向いた側面が黒帯にならないようにする
+    const fill = new THREE.DirectionalLight(LIGHTS.fill.color, LIGHTS.fill.intensity);
+    fill.position.set(...LIGHTS.fill.position);
+    this.scene.add(fill);
 
     // §6-3 のサプライズは**カメラの子**にする。カメラ空間に置けば、
     // 画面のどこにどれだけの大きさで出るかが素直に決まる。
