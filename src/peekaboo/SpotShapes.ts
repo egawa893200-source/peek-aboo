@@ -722,6 +722,12 @@ function createBush(p: Palette, seed: number): SpotShape {
 
   // 前の房。左右2つ。1つを4個の球で作ると、輪郭がぼこぼこして草に見える。
   // いちばん下の球は、うさぎの足元まで隠すためのもの
+  // 株ごとの「上のふくらみかた」。**横には広げない**（隣とくっつく）。
+  // 上の房を「高く細く」か「低く広く」かに振ると、輪郭の上半分が変わる。
+  // 判定に「5株とも同じ球の組み方・同じ上向きのトゲで、違いは瘤の位置が
+  // 数px 動く程度」と2回続けて言われたので、形そのものを振る
+  const topWide = rng();
+
   const bunches: THREE.Group[] = [];
   for (const side of [-1, 1]) {
     const bunch = new THREE.Group();
@@ -743,9 +749,13 @@ function createBush(p: Palette, seed: number): SpotShape {
       // 押す場所が3つあることが読めなくなった（2026-09-08 の実測:
       // 連結成分が 5つ → 3つ、いちばん大きいものが 84,119px）
       const grow = 1 + rng() * 0.17;
+      // 上の2つ（i >= 2）だけ、株ごとに「高く細く／低く広く」を振る
+      const upper = i >= 2;
+      const wide = upper ? 0.86 + topWide * 0.34 : 1;
+      const tall = upper ? 1.16 - topWide * 0.3 : 1;
       blob.scale.set(
-        HALF_W * 0.42 * grow * (0.94 + rng() * 0.13),
-        HALF_H * blobs[i][3] * grow,
+        HALF_W * 0.42 * grow * (0.94 + rng() * 0.13) * wide,
+        HALF_H * blobs[i][3] * grow * tall,
         0.14
       );
       blob.position.set(

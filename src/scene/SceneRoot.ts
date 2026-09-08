@@ -23,6 +23,7 @@ import { SpotShuffle } from '../peekaboo/SpotShuffle';
 import { createCutoutAnimal, createCutoutShadow } from '../peekaboo/CutoutAnimal';
 import { createProceduralAnimal } from '../peekaboo/ProceduralAnimals';
 import { SpotSystem } from '../peekaboo/SpotSystem';
+import type { SpotRuntime } from '../peekaboo/SpotSystem';
 import {
   createBackdropImage,
   createBackdropTexture,
@@ -32,7 +33,7 @@ import {
   sampleBackdropHorizon,
   sampleBackdropSun,
 } from './Backdrop';
-import { DROP_SHADOW, SKY_SHADOW_FADE } from '../data/look';
+import { DROP_SHADOW, SKY_SHADOW_FADE, SUPPORT } from '../data/look';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
 
 /** 行き先の隠れ場所からこれだけ離れていないと、足あとを落とさない */
@@ -82,6 +83,8 @@ export class SceneRoot {
 
   /** 背景の絵の地平線（ワールドの y）。空に掛かる影を弱めるのに使う */
   private readonly horizonY: number | null;
+  /** 上の段を地面まで支える柱。**自分で作ったものは自分で捨てる**（不変条件8） */
+  private readonly supports: readonly THREE.Mesh[];
 
   /**
    * この場面で読んだ絵。§6-3 のサプライズが同じテクスチャを使い回す。
@@ -130,9 +133,11 @@ export class SceneRoot {
     cutouts: ReadonlyMap<string, THREE.Texture>,
     ambient: { sky: THREE.Color; ground: THREE.Color },
     sun: { u: number; v: number } | null,
-    horizonY: number | null
+    horizonY: number | null,
+    supports: readonly THREE.Mesh[]
   ) {
     this.horizonY = horizonY;
+    this.supports = supports;
     this.ambient = ambient;
     this.sun = sun;
     this.cutouts = cutouts;
@@ -263,6 +268,10 @@ export class SceneRoot {
       }
     }
 
+    // 上の段を地面まで支える柱（`SUPPORT`）。**見た目だけの追加。**
+    // 地平線が読めない絵では出さない（不変条件7）
+    const supports = horizonY === null ? [] : addSupports(spots.runtimes, horizonY, ambient);
+
     const animals = new AnimalSystem(spots, undefined, cutouts);
 
     // モードB（§4-5）。走り手はデータではなく実行時にどこかへ入れる。
@@ -362,7 +371,7 @@ export class SceneRoot {
       }
     }
 
-    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient, sun, horizonY);
+    const root = new SceneRoot(config, spots, animals, chase, shuffle, empty, flavor, floor, backdropImage, backdrop, shadowTexture, shadowRectTexture, shadows, cutouts, ambient, sun, horizonY, supports);
     root.cameo = cameoBuilt;
     root.shadowShapes = shadowShapes;
     return root;
@@ -496,6 +505,9 @@ export class SceneRoot {
     // 自分で作ったものは自分で捨てる（不変条件8）。
     // 影の板は `SpotSystem` の子だが、あちらは捨ててくれない
     for (const shadow of this.shadows) disposeObject3D(shadow, { keepTextures: true });
+    // 柱は自分で作ったので自分で捨てる（不変条件8）。
+    // material は柱どうしで使い回しているが、`disposeObject3D` が重複を畳む
+    for (const support of this.supports) disposeObject3D(support);
     this.flavor.dispose();
     this.cameo?.dispose();
     if (this.shadowShapes) {
@@ -516,4 +528,74 @@ export class SceneRoot {
     if (this.backdropImage) disposeObject3D(this.backdropImage, { keepTextures: true });
     disposeObject3D(this.group);
   }
+}
+
+
+/**
+ * 上の段の隠れ場所を、背景の地面まで支える柱を立てる。
+ *
+ * ==========================================================================
+ * 隠れ場所より**奥**（背板 z=-0.45 より奥）に置くので、中の動物には
+ * 一切かからない。もともと地面に近い隠れ場所には立てない（`minGap`）。
+ *
+ * **見かけの高さで合わせる。** 柱は奥にあるぶんカメラから見て中心へ寄るので、
+ * ワールドの y をそのまま使うと地面より手前で終わって見える
+ * （落ち影で踏んだのと同じ話）。
+ *
+ * 色は場面の地の色から取る（`ambient.ground`）ので、絵ごとに馴染む。
+ * ==========================================================================
+ */
+function addSupports(
+  runtimes: readonly SpotRuntime[],
+  horizonY: number,
+  ambient: { sky: THREE.Color; ground: THREE.Color }
+): THREE.Mesh[] {
+  const made: THREE.Mesh[] = [];
+  const color = ambient.ground.clone().multiplyScalar(0.72);
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0 });
+  const depth = 7.2 / (7.2 - SUPPORT.z);
+
+  for (const runtime of runtimes) {
+    // **`runtime.group` のワールド行列はまだ入っていない。**
+    // ここは場面を組み立てている途中で、`SpotSystem` の group が
+    // `SceneRoot.group` に付く前なので、`setFromObject` はローカルの箱を返す
+    // （実測: 上の段の隠れ場所なのに下端が -1.56 と出た）。
+    // 位置はデータ（`SpotConfig.position`）から取る
+    // **吊り下がっているものには柱を立てない。**
+    // カーテンは上にレールが描いてあって「掛かっている」と読めるので、
+    // 下に台を付けると意味が食い違う（判定も「カーテンは掛かっていると
+    // 読める」と書いている）
+    if (runtime.shapeKind === 'curtain') continue;
+    const spotY = runtime.config.position[1];
+    _shadowBox.setFromObject(runtime.shape.group);
+    const bottomWorld = spotY + _shadowBox.min.y;
+    const gap = bottomWorld - horizonY;
+    if (gap < SUPPORT.minGap) continue;
+
+    // 見かけで「隠れ場所の下端」から「地平線」までを埋める高さにする
+    const apparent = (y: number): number => (y - 0.3) / depth + 0.3;
+    const topLocal = apparent(bottomWorld + 0.06) - spotY;
+    const bottomLocal = apparent(horizonY) - spotY;
+    const height = topLocal - bottomLocal;
+    if (height <= 0) continue;
+
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(SUPPORT.width, height, 0.18),
+      material
+    );
+    post.name = 'support.post';
+    post.position.set(0, (topLocal + bottomLocal) / 2, SUPPORT.z);
+    runtime.group.add(post);
+    made.push(post);
+
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry(SUPPORT.width * SUPPORT.baseScale, SUPPORT.baseHeight, 0.22),
+      material
+    );
+    base.name = 'support.base';
+    base.position.set(0, bottomLocal + SUPPORT.baseHeight / 2, SUPPORT.z);
+    runtime.group.add(base);
+    made.push(base);
+  }
+  return made;
 }

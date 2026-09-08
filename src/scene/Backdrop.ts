@@ -317,8 +317,11 @@ export function sampleBackdropHorizon(texture: THREE.Texture): number | null {
   }
   let best = 0;
   let at = -1;
-  // 端は絵の枠の影響を受けるので見ない
-  for (let y = ROWS * 0.2; y < ROWS * 0.85 - 1; y++) {
+  // 端は絵の枠の影響を受けるので見ない。
+  // **添字は整数にすること。** `ROWS * 0.2` のままだと 9.6 から 1 ずつ増えて
+  // すべて小数の添字になり、`rows[9.6]` が undefined → NaN 比較で
+  // 常に「地平線なし」を返していた（2026-09-08 に踏んだ）
+  for (let y = Math.floor(ROWS * 0.2); y < Math.floor(ROWS * 0.85) - 1; y++) {
     const step = rows[y] - rows[y + 1];
     if (step > best) {
       best = step;
