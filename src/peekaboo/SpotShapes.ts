@@ -724,18 +724,22 @@ function createBush(p: Palette, seed: number): SpotShape {
       // 判定に「5株とも輪郭の4つの塊の並びも上のトゲの生え方も同一で、
       // 違うのは表面の斑点の位置だけ」と2回続けて言われた。
       // 大きさは**大きくする側にしか振らない**（縮めると隙間が開く）
-      const grow = 1 + rng() * 0.3;
+      // **広げすぎると隣とくっつく。** +30%・±0.08 まで振ったら、
+      // のはら の上の3株が画面上で1つの塊につながり、
+      // 押す場所が3つあることが読めなくなった（2026-09-08 の実測:
+      // 連結成分が 5つ → 3つ、いちばん大きいものが 84,119px）
+      const grow = 1 + rng() * 0.17;
       blob.scale.set(
-        HALF_W * 0.42 * grow * (0.9 + rng() * 0.25),
+        HALF_W * 0.42 * grow * (0.94 + rng() * 0.13),
         HALF_H * blobs[i][3] * grow,
         0.14
       );
       blob.position.set(
-        blobs[i][0] + (rng() - 0.5) * 0.16,
-        blobs[i][1] + (rng() - 0.5) * 0.14,
+        blobs[i][0] + (rng() - 0.5) * 0.1,
+        blobs[i][1] + (rng() - 0.5) * 0.12,
         FRONT_Z + blobs[i][2]
       );
-      blob.rotation.z = (rng() - 0.5) * 0.9;
+      blob.rotation.z = (rng() - 0.5) * 0.8;
       bunch.add(blob);
     }
     // **中央でしっかり重ねる。** 0.03 しか寄せていなかったときは、
