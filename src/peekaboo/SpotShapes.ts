@@ -925,14 +925,39 @@ function createRock(p: Palette, spotY: number, seed: number): SpotShape {
       [side * 0.4, -H * 0.62, -0.01, 0.44, 0.48],
       [side * 0.36, H * 0.1, -0.01, 0.4, 0.44],
     ];
+    // ======================================================================
+    // **くさむらと違う輪郭にする**（2026-09-13）。
+    //
+    // 判定に「緑の塊と茶の塊が、同じ輪郭に色と斑点を変えただけ」と言われた
+    // （左右反転して重ねた IoU はきょうりゅう 0.832・うみ 0.852・
+    // のうじょう 0.879・どうぶつえん 0.857・そと 0.789 で、**7場面中6場面**）。
+    // どちらも「W×H をいっぱいに使う球の縦積みを ±W/4 に2つ」なので当然。
+    //
+    // 岩は**上が平たく広い大きな面**、くさむらは**上が細かく刻まれた株**にする。
+    // ここでは上の塊を横に広げて縦に潰し（`TOP_FLAT`）、
+    // 左右の塊の大きさを変える（`massTilt`）。
+    // **小さくする側には振らない。** 縮めると隙間が開いて遮蔽が漏れる
+    // （15×15 のレイのテストが見張っている）
+    // ======================================================================
+    const massTilt = side < 0 ? 1 + rng() * 0.14 : 1;
     const parts: THREE.BufferGeometry[] = [];
     const at = new THREE.Matrix4();
     for (let i = 0; i < blobs.length; i++) {
       // 分割は粗く。8個 × 2 で (9,6) にしたら三角形が baseline 比 +26% になった
       // （上限 +10%）。重なった塊なので、(8,4) でも輪郭は荒れない
       const geometry = new THREE.SphereGeometry(1, 8, 4).toNonIndexed();
+      // 上側の塊（y > 0）は横に広げて縦に潰す。面積は落とさない
+      const high = blobs[i][1] > 0;
+      const flatW = high ? 1.22 : 1;
+      const flatH = high ? 1.04 : 1;
       at.makeRotationZ((i - 1) * 0.2 * side);
-      at.scale(_lumpScale.set(HALF_W * blobs[i][3] * 1.28, HALF_H * blobs[i][4], 0.15));
+      at.scale(
+        _lumpScale.set(
+          HALF_W * blobs[i][3] * 1.28 * flatW * massTilt,
+          HALF_H * blobs[i][4] * flatH * massTilt,
+          0.15
+        )
+      );
       at.setPosition(blobs[i][0], blobs[i][1], FRONT_Z + blobs[i][2]);
       geometry.applyMatrix4(at);
       parts.push(geometry);
