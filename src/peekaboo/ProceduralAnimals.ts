@@ -152,6 +152,37 @@ function fin(mat: THREE.Material, w: number, h: number, d = 0.03): THREE.Mesh {
 }
 
 /**
+ * 三角の翼。付け根（x=0）で広く、外（x=span）へ向かって細くなる。
+ *
+ * **四角い板で作らないこと。** `fin()`（BoxGeometry）で作っていたときは、
+ * 参照が空けている**上の外側の角**を埋めてしまい、はみ出しが
+ * 参照の面積の 0.817 もあった（M1 0.523 / 2026-09-13 実測）。
+ * 参照の翼は上 20% が空で、下へ行くほど横に広がる形をしている。
+ *
+ * 板ではなく薄い立体にしてあるのは、裏から見たときに消えないため
+ * （`p.accent` は他でも使う共有マテリアルなので `side` を変えられない）。
+ */
+function wing(
+  mat: THREE.Material,
+  span: number,
+  rootUp: number,
+  rootDown: number,
+  tipUp: number,
+  tipDown: number,
+  depth = 0.03
+): THREE.Mesh {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, rootUp);
+  shape.lineTo(span, tipUp);
+  shape.lineTo(span, tipDown);
+  shape.lineTo(0, -rootDown);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
+  geo.translate(0, 0, -depth / 2);
+  return new THREE.Mesh(geo, mat);
+}
+
+/**
  * 動物を1体作る。
  *
  * **`bodyPlan` などを指定していない `AnimalConfig` でも落とさない**（不変条件7）。
@@ -350,7 +381,7 @@ function buildMammal(cfg: AnimalConfig, p: Palette, h: number, w: number, d: num
 function buildBird(cfg: AnimalConfig, p: Palette, h: number, w: number, d: number): Built {
   const root = new THREE.Group();
   const torsoH = h * 0.62;
-  const headR = h * 0.24;
+  const headR = h * 0.24 * (cfg.headScale ?? 1);
 
   const torso = ball(p.skin);
   torso.scale.set(w / 2, torsoH / 2, d / 2);
@@ -363,12 +394,18 @@ function buildBird(cfg: AnimalConfig, p: Palette, h: number, w: number, d: numbe
   belly.position.set(0, torsoH * 0.42, d * 0.24);
   root.add(belly);
 
-  // 翼。潰した球を横に貼る
-  for (const sx of [-1, 1]) {
-    const wing = ball(p.skin, w * 0.3);
-    wing.scale.set(0.3, 1.05, 0.75);
-    wing.position.set(sx * w * 0.46, torsoH * 0.52, 0);
-    root.add(wing);
+  // 翼。潰した球を横に貼る。
+  // **`coat: 'wings'` のときは出さない。** プテラノドンは下の `addCoat` が
+  // 三角の翼を付けるので、ここの丸い翼と二重になっていた。
+  // 実測（M1 / 2026-09-13）: この丸い翼だけで参照の面積の 20% ぶん
+  // はみ出していた（左右で 0.068、参照の全面積が 0.328）
+  if ((cfg.coat ?? 'plain') !== 'wings') {
+    for (const sx of [-1, 1]) {
+      const stub = ball(p.skin, w * 0.3);
+      stub.scale.set(0.3, 1.05, 0.75);
+      stub.position.set(sx * w * 0.46, torsoH * 0.52, 0);
+      root.add(stub);
+    }
   }
 
   // **とりでも coat を通すこと。** ここを呼んでいなかったせいで、
@@ -529,13 +566,25 @@ function buildCrab(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: numb
   shell.position.y = bodyY;
   root.add(shell);
 
-  // はさみ。上に構える。
-  // **小さく、体に寄せる**（M1 / 2026-09-06）。0.16 の球を w*0.74 に
-  // 置いていたときは、参照のはさみより大きく外に出ていて
-  // はみ出しが 0.763 あった。0.12 を w*0.62 に寄せて 0.085 まで減った
+  // はさみ。**甲羅と同じ高さに構える。**
+  // 小さく体に寄せるのは 2026-09-06 のまま（0.16 を w*0.74 に置いていた
+  // ときは、はみ出しが 0.763 あった）。
+  //
+  // **高さを下げた**（M1 / 2026-09-13）。bodyY + h*0.22 に置いていたときは、
+  // はさみの天辺が図の上から 8% のところまで来ていて、正面の広がりが
+  // 上から 5% の帯で既に体高比 1.36 あった。参照は同じ帯が 0.54（目の柄だけ）。
+  // 参照でも はさみは上から 15% より下にある。
+  // **はさみを大きくして外へ出すのは逆効果**（同日・実測）。
+  // 0.12→0.15 にして x を w*0.62→0.68 に出したら、図の縦横比が
+  // 1.61（参照どおり）から 1.81 になり、0.637 → 0.583 に落ちた。
+  // 足りないのは**上から 15% の帯の中身**（0.136 / 参照 0.460）なので、
+  // 外へ広げるのではなく**腕を太く**して埋める。
+  // **下げすぎても落ちる**（同日）。bodyY + h*0.06 まで下げたら、
+  // 今度は上から 15〜25% の帯が 0.41 しか無く（参照 1.54〜1.61）、
+  // 足りない面積が増えて 0.561 に下がった。h*0.14 が両側に触らない高さ
   for (const sx of [-1, 1]) {
-    const arm = tube(p.skin, w * 0.05, w * 0.3, 6);
-    arm.position.set(sx * w * 0.46, bodyY + h * 0.06, d * 0.1);
+    const arm = tube(p.skin, w * 0.085, w * 0.3, 6);
+    arm.position.set(sx * w * 0.46, bodyY + h * 0.16, d * 0.1);
     arm.rotation.z = sx * -0.6;
     root.add(arm);
     const claw = ball(p.warm, w * 0.12);
@@ -544,11 +593,31 @@ function buildCrab(_cfg: AnimalConfig, p: Palette, h: number, w: number, d: numb
     root.add(claw);
   }
 
-  // 脚。左右3本ずつの短い棒。
-  // **細く、少しだけ下へ**（M1 / 2026-09-06）。太さ 0.035 → 0.024。
-  // 傾きは 1.1（ほぼ水平）だと横に張り出すので 0.6 にした。
-  // **垂直に近づけすぎると逆に下がる**（0.2 まで立てると縦に伸びて
-  // 縦横比が 1.19 になり、IoU 0.465）
+  // 脚。左右4本ずつ。**正面から見て扇に開くこと。**
+  //
+  // **x をずらすのが肝**（M1 / 2026-09-13）。3本を同じ x（w*0.46）に置いて
+  // z だけずらしていたので、**正面からは3本が1本に重なって見えていた**。
+  // 図の下から 30% の帯で埋まっている面積が体高比 0.110 しかなく、
+  // 参照の 1.09 の 1/10 だった（足りない面積 0.282 / IoU 0.662）。
+  // z のずれは奥行きを作るだけで、正面のシルエットには何も足さない。
+  //
+  // 外側の脚ほど寝かせる。参照も下へ行くほど横に広がっている
+  //
+  // **扇に開くと、見た目は良くなるが数値は下がる**（同日・実測）。
+  // 正面に4本ぶんの脚が見えるようにはなるが、参照が空けている
+  // 下の外側にも脚が来るので、はみ出しが 0.085 → 0.205 に増え、
+  // 足りない面積の改善（0.282 → 0.217）を打ち消して 0.662 → 0.649 に下がった。
+  // **数値で戻した。** 見た目を採るなら人間が決めること
+  //
+  // **内側へ足しても下がる**（同日・実測）。参照の下から 25% の帯は
+  // 横幅の 83% が埋まっているので「内側なら参照も埋まっている」と考えて
+  // x を w*0.30〜0.54 に3本、太さも 0.045 にしたら、はみ出しが
+  // 0.103 → 0.271 に増えて 0.675 → 0.599 に落ちた。
+  // 参照のかには**脚が外へ放射状に開いていて、腹の真下は空いている**。
+  // 帯ごとの埋まり具合（行の合計）だけでは、その空きが見えない。
+  //
+  // **ここは触らないこと。** 3本を同じ x に重ねる今の形が、
+  // これまで試した中でいちばん高い（0.675）
   for (const sx of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
       const leg = tube(p.skin, w * 0.024, w * 0.38, 6);
@@ -675,7 +744,7 @@ function buildFrog(cfg: AnimalConfig, p: Palette, h: number, w: number, d: numbe
 function buildLongNeck(cfg: AnimalConfig, p: Palette, h: number, w: number, d: number): Built {
   const root = new THREE.Group();
   const torsoH = h * 0.26;
-  const headR = h * 0.11;
+  const headR = h * 0.11 * (cfg.headScale ?? 1);
   const legH = h * 0.3;
   const neckLen = h * 0.44;
   const torsoY = legH + torsoH / 2;
@@ -685,16 +754,28 @@ function buildLongNeck(cfg: AnimalConfig, p: Palette, h: number, w: number, d: n
   torso.position.y = torsoY;
   root.add(torso);
 
-  // 脚4本。**細く長く。** きりんは脚も首と同じくらい目立つ
+  // 脚4本。**細く長く。** きりんは脚も首と同じくらい目立つ。
+  //
+  // **太さと開き方は参照から決めた**（M1 / 2026-09-13 実測）。
+  // 0.085 幅を w*0.3 に開いていたときは、正面の脚の広がりが体高の 0.198 で
+  // 参照の 0.151 より広く、そのくせ埋まっている面積は 0.069 で
+  // 参照の 0.125 の半分しかなかった（細くて開きすぎ）。
+  // 内に寄せて太くすると、広がりも面積も参照に寄る
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      const leg = tube(p.skin, w * 0.085, legH, 6);
-      leg.position.set(sx * w * 0.3, legH / 2, sz * d * 0.26);
+      const leg = tube(p.skin, w * 0.12, legH, 6);
+      leg.position.set(sx * w * 0.2, legH / 2, sz * d * 0.26);
       root.add(leg);
     }
   }
 
-  const neck = tube(p.skin, w * 0.13, neckLen, 8);
+  // 首。**参照は下へ行くほど太い**（体高比で 0.070 → 0.091）。
+  // 同じ太さの筒だと 0.060 で一定になり、胴との境目が段になる。
+  // `tube()` は上下同じ太さしか作れないので、ここだけ直に作る
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(w * 0.13, w * 0.2, neckLen, 8),
+    p.skin
+  );
   neck.position.set(0, torsoY + torsoH * 0.4 + neckLen / 2, d * 0.12);
   neck.rotation.x = -0.12;
   root.add(neck);
@@ -859,11 +940,17 @@ function addHeadTop(kind: HeadTop, head: THREE.Group, p: Palette, r: number): vo
   switch (kind) {
     case 'bigEars':
       // ぞうの耳。**平たい大きな板を頭の横に張る。**
-      // 丸い耳を大きくしただけだと、ねずみと同じ輪郭になる
+      // 丸い耳を大きくしただけだと、ねずみと同じ輪郭になる。
+      //
+      // **横に広げること**（M1 / 2026-09-13）。`scale.x = 0.16` だと
+      // 正面からは板を真横から見ることになり、耳の幅は体高比 0.10 しか
+      // 無かった。頭と耳を合わせた広がりが 0.59 で、参照の 0.87 に届かず、
+      // 足りない面積が参照の 0.217 あった（IoU 0.678）。
+      // 耳は**正面を向いた扇**なので、x に広げて z で薄くするのが正しい
       for (const sx of [-1, 1]) {
-        const ear = ball(p.accent, r * 0.66);
-        ear.scale.set(0.16, 1.0, 0.82);
-        ear.position.set(sx * r * 0.98, -r * 0.04, -r * 0.06);
+        const ear = ball(p.accent, r * 0.58);
+        ear.scale.set(1.05, 1.15, 0.2);
+        ear.position.set(sx * r * 1.05, -r * 0.02, -r * 0.1);
         head.add(ear);
       }
       break;
@@ -1110,12 +1197,43 @@ function addCoat(
       break;
     }
     case 'wings': {
-      // プテラノドンの翼。**体幅より大きく取る。** これが輪郭の主役
+      // プテラノドンの翼。これが輪郭の主役。
+      //
+      // **四角い板をやめた**（M1 / 2026-09-13）。`fin()` の
+      // w*0.28 × torsoH*1.05 を x=±w*0.48 に立てていたときは、
+      // 上から 5% の高さで既に横幅いっぱい（体高比 1.36）になっていた。
+      // 参照はそこが 0.54 しかなく、**上の外側の角が丸ごとはみ出し**だった。
+      // 参照は上 20% が空で、25% で 0.71、65% で 0.88 と下へ行くほど広がる。
+      //
+      // 付け根で広く、外へ向かって細くなる三角にする。
+      //
+      // **下げすぎないこと**（同日）。いちど下端を図の 90% まで垂らしたら、
+      // その帯の広がりが 1.265 になり（参照 0.855）、はみ出しが 0.745 残った。
+      // 参照の翼は上から 20%〜90% に収まっていて、下端では細い帯になる。
+      //
+      // **付け根を胴から離すこと**（同日）。付け根を胴の中（w*0.15）に
+      // 置くと翼と胴がつながって、下から 25% の帯が塗りつぶし（0.881）に
+      // なる。参照は同じ帯が 0.546 で、**胴と翼のあいだに隙間がある**。
+      // 付け根を外に出し、下の辺を斜めに上げると隙間ができる。
+      //
+      // **下端まで届かせること**（同日）。翼を胴の中に収めると、図の
+      // 下 15% の広がりが 0.25〜0.42 しか無く、参照の 0.84〜0.87 に対して
+      // 足りない面積になる。参照の翼は足元まで届いていて、**そこまで
+      // 伸ばすと図全体が縦に伸びるので、頭の相対的な大きさも下がる**
+      // （頭は体高から決まるので、これが頭を小さく見せる唯一の手）。
       for (const sx of [-1, 1]) {
-        const wing = fin(p.accent, w * 0.28, torsoH * 1.05, 0.04);
-        wing.position.set(sx * w * 0.48, torsoH * 0.6, -d * 0.06);
-        wing.rotation.z = sx * -0.15;
-        root.add(wing);
+        const w1 = wing(
+          p.accent,
+          w * 0.64,
+          torsoH * 0.4,
+          torsoH * 0.28,
+          -torsoH * 0.3,
+          -torsoH * 0.7,
+          0.04
+        );
+        w1.position.set(sx * w * 0.25, torsoH * 0.55, -d * 0.06);
+        w1.scale.x = sx;
+        root.add(w1);
       }
       break;
     }

@@ -424,7 +424,11 @@ export const ANIMALS: readonly AnimalConfig[] = [
     snout: 'trunk',
     tail: 'thin',
     bodyHeight: 1.00,
-    bodyWidth: 0.62,
+    // **下半身を絞る**（M1 / 2026-09-13）。0.62 のときは図の下半分の
+    // 広がりが体高比 0.65 あり、参照の 0.44 より太かった。
+    // 参照のぞうは、耳が広くて胴と脚は細い。頭の大きさは体高から
+    // 決まるので、ここを絞っても耳は小さくならない
+    bodyWidth: 0.47,
   },
   {
     id: 'kirin',
@@ -445,6 +449,8 @@ export const ANIMALS: readonly AnimalConfig[] = [
     coat: 'spotted',
     bodyHeight: 1.25,
     bodyWidth: 0.32,
+    // 参照の頭は体高比 0.107。既定（h*0.11＝幅 0.221）では2倍あった
+    headScale: 0.5,
   },
   {
     id: 'saru',
@@ -544,7 +550,14 @@ export const ANIMALS: readonly AnimalConfig[] = [
     // 翼が輪郭の主役
     coat: 'wings',
     bodyHeight: 0.86,
-    bodyWidth: 0.62,
+    // **胴を絞る**（M1 / 2026-09-13）。翼の広がりは体幅から決まるので、
+    // 0.62 のままでは翼を三角にしても横幅が体高の 1.27 になり、
+    // 参照の 0.88 に収まらなかった
+    bodyWidth: 0.34,
+    // 参照の頭ととさかは体高比 0.05〜0.08 しかない。
+    // 既定（h*0.24）では上から 15% の帯が 0.50 あり、翼より先に
+    // ここがはみ出していた
+    headScale: 0.35,
   },
 ];
 
