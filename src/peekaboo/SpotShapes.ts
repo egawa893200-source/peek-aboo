@@ -403,10 +403,17 @@ function applySurface(shape: SpotShape, kind: SpotKind, seed: number): void {
       // 上を明るく下を暗く（中央が 1.0）。奥ほど暗く。
       // **横も。** 光の側（左）を明るく。これが無いと、板の左端と右端が
       // 0.3/255 しか違わず、木目を重ねても面は平らに見える
-      const shade =
-        (1 + FORM_SHADING.lift * (up - 0.5)) *
-        (1 + FORM_SHADING.side * (0.5 - across)) *
-        (1 - FORM_SHADING.depth * (1 - front));
+      // **上下限で蓋をする。** 3つの項は掛け算なので、角で重なると
+      // 意図よりずっと暗く（明るく）なる（理由と実測は `data/look.ts`）
+      const shade = Math.min(
+        FORM_SHADING.ceil,
+        Math.max(
+          FORM_SHADING.floor,
+          (1 + FORM_SHADING.lift * (up - 0.5)) *
+            (1 + FORM_SHADING.side * (0.5 - across)) *
+            (1 - FORM_SHADING.depth * (1 - front))
+        )
+      );
       colors[i * 3] = shade;
       colors[i * 3 + 1] = shade;
       colors[i * 3 + 2] = shade;
