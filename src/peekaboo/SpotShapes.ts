@@ -1061,12 +1061,46 @@ function createWater(p: Palette): SpotShape {
   const surface = new THREE.Group();
   const body = plate('water.body', W, WATER_H, 0.16, standard(p.cover, 0.4), 0, WATER_H / 2, FRONT_Z);
   surface.add(body);
-  // 波の縁。まっすぐな板だと「青い箱」に見える
-  for (let i = 0; i < 5; i++) {
-    const crest = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), standard(p.accent, 0.35));
+  // ==========================================================================
+  // 波の縁。まっすぐな板だと「青い箱」に見える。
+  //
+  // **高さ 0.05 では波に見えなかった**（2026-09-13）。判定に
+  // 「直角の長方形の板が2枚。まわりが全部丸い塊の場面に四角い板が
+  // 1枚混ざっていて、そこだけ人工物に見える」と −15 を付けられていた。
+  // 5個を等間隔に点々と置いても、画面では水平な直線のままだった。
+  //
+  // **隣とかならず重ねて、高さを1つずつ変える。** そうすると上の縁が
+  // 途切れない波になる。間隔も不揃いにする
+  // （CLAUDE.md「等間隔に刻むと…トタン板になる」）。
+  //
+  // 三角形は増やさない: 分割を (10,6)=120 から (8,5)=80 に落として
+  // 個数を 5 → 8 にするので 600 → 640（+40）。
+  // うみ は予算に 2.5% 残っている（`docs/visual-log.md` の描画量の表）
+  // ==========================================================================
+  const CRESTS: [number, number, number][] = [
+    // x（-1..1 の比）, 高さ, 横幅の倍率
+    [-1.0, 0.15, 1.0],
+    [-0.72, 0.1, 0.86],
+    [-0.43, 0.17, 1.08],
+    [-0.18, 0.11, 0.92],
+    [0.1, 0.16, 1.04],
+    [0.38, 0.1, 0.88],
+    [0.66, 0.15, 1.0],
+    [1.0, 0.12, 0.94],
+  ];
+  for (let i = 0; i < CRESTS.length; i++) {
+    const [at, high, wide] = CRESTS[i];
+    // **泡の色（`accent`）で大きくしないこと。** 淡い水色のまま高さを
+    // 0.05 → 0.15 にしたら、上の縁に明るい帯ができて背景の明るさに寄り、
+    // 輪郭の明度差 V1 が 14.79 → **6.25** と落第した（2026-09-13 の実測）。
+    // 波の形は保ったまま、色は水そのもの（`cover`）にする。
+    // 泡の白は模様（`SpotTextures.water`）の側で出す
+    const crest = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 5), standard(p.cover, 0.35));
     crest.name = `water.crest.${i}`;
-    crest.scale.set(W * 0.14, 0.05, 0.09);
-    crest.position.set(-HALF_W + 0.16 + (i * (W - 0.32)) / 4, WATER_H, FRONT_Z + 0.04);
+    // **横幅は隣との間隔より広く取る**（0.28 間隔に対して 0.18×2）。
+    // 重ならないと、波ではなく水の上に並んだ粒になる
+    crest.scale.set(W * 0.18 * wide, high, 0.09);
+    crest.position.set(at * (HALF_W - 0.12), WATER_H - high * 0.35, FRONT_Z + 0.04);
     surface.add(crest);
   }
   surface.position.y = -H * 0.95;
