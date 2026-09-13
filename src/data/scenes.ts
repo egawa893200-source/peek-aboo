@@ -87,6 +87,9 @@ const OUCHI: SceneConfig = {
   id: "ouchi",
   // おうち。夕方の部屋。暖かい茶
   sky: ["#6a5240", "#22150f"],
+  // **屋内。** 絵のいちばん大きな明るさの段差（v=0.563）は床と壁の境目で、
+  // その上は空ではなく壁。壁に落ちる影を弱めない（`indoor` の説明を読むこと）
+  indoor: true,
   // おうち。ふとんや箱が **もぞもぞ動いてから**開く（ため の 0.15秒）
   flavor: { wobble: true, shadowPeek: true },
   label: "おうち",

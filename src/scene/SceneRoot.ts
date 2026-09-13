@@ -31,8 +31,10 @@ import {
   sampleBackdropLight,
   sampleBackdropHorizon,
   sampleBackdropSun,
+  fadeShadowOverSky,
+  SHADOW_ROWS,
 } from './Backdrop';
-import { DROP_SHADOW, SKY_SHADOW_FADE } from '../data/look';
+import { DROP_SHADOW, SKY_SHADOW_FADE, SKY_SHADOW_BAND } from '../data/look';
 import { Flavor, FOOTPRINT_EVERY_SEC } from './Flavor';
 
 /** 行き先の隠れ場所からこれだけ離れていないと、足あとを落とさない */
@@ -223,7 +225,10 @@ export class SceneRoot {
     // 地平線（ワールドの y）。空に掛かる影を弱めるために使う。
     // 絵が無い場面・地面の無い絵（うみ）では null
     let horizonY: number | null = null;
-    if (background && backdropImage) {
+    // **屋内の場面では地平線を決めない**（`SceneConfig.indoor`）。
+    // 絵のいちばん大きな段差が床と壁の境目に来るので、
+    // 壁に落ちる影まで弱めてしまう（実測は `types.ts` の `indoor` に残した）
+    if (background && backdropImage && !config.indoor) {
       const v = sampleBackdropHorizon(background);
       if (v !== null) {
         const plane = backdropImage.geometry as THREE.PlaneGeometry;
@@ -424,8 +429,9 @@ export class SceneRoot {
       const localY = (wantWorldY - camera.position.y) / depth - _shadowAt.y + camera.position.y;
 
       shadow.geometry.dispose();
-      // 奥にあるぶん小さく見えるので、そのぶん大きく作る
-      shadow.geometry = new THREE.PlaneGeometry(width / depth, height / depth);
+      // 奥にあるぶん小さく見えるので、そのぶん大きく作る。
+      // **縦の分割を落とさないこと。** 地平線で切るのに要る（`SHADOW_ROWS`）
+      shadow.geometry = new THREE.PlaneGeometry(width / depth, height / depth, 1, SHADOW_ROWS);
       // **角のあるものに楕円の影を付けない。** 形が合っていないと
       // 「別のものが後ろに置いてある」ように見える
       const texture = round ? this.shadowTexture : this.shadowRectTexture;
@@ -433,9 +439,27 @@ export class SceneRoot {
       shadow.position.set(DROP_SHADOW.offsetX / depth, localY, DROP_SHADOW.z);
 
       // **空には影を落とさない。** 地平線より上にある隠れ場所の影は、
-      // 背景の絵の空の上に灰色のにじみとして乗る（`SKY_SHADOW_FADE`）
-      const overSky = this.horizonY !== null && _shadowAt.y + centerY > this.horizonY;
-      (shadow.material as THREE.MeshBasicMaterial).opacity = overSky ? SKY_SHADOW_FADE : 1;
+      // 背景の絵の空の上に灰色のにじみとして乗る（`SKY_SHADOW_FADE`）。
+      //
+      // **板ぜんたいを薄くしないこと。** 地面に乗るぶん（＝接地の手がかり）まで
+      // 薄まって、上の段6箇所の V5 が半分以下に落ちていた
+      // （`fadeShadowOverSky` の頭のコメントに実測を残した）。
+      // 高さごとに頂点アルファで消す
+      const material = shadow.material as THREE.MeshBasicMaterial;
+      if (this.horizonY !== null) {
+        // 影は `runtime.group` の子。頂点のローカル y をワールドに直す
+        const baseY = _shadowAt.y + localY;
+        fadeShadowOverSky(
+          shadow,
+          (y) => baseY + y,
+          this.horizonY,
+          SKY_SHADOW_BAND,
+          SKY_SHADOW_FADE
+        );
+      } else {
+        material.vertexColors = false;
+        material.opacity = 1;
+      }
     }
   }
 

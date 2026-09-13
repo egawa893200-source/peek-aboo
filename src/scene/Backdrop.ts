@@ -133,10 +133,62 @@ export function createContactShadow(texture: THREE.Texture, width: number, heigh
   // この場面は隠れ場所が縦に並ぶ 2.5D の配置で、足元に地面が無い。
   // 水平に寝かせた楕円はカメラ（見下ろし 11.8°）から見て潰れて見えず、
   // 実際に1枚も見えなかった。板は立てたまま、少し下・少し奥に置く
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), mat);
+  // **縦に割っておく**（2026-09-13）。地平線より上のぶんだけを
+  // 頂点アルファで消すため（`fadeShadowOverSky`）。2枚のままだと
+  // 上端から下端への一次の傾斜しか作れず、地平線の位置で切れない。
+  // 6分割＝12三角形。29箇所で +290 三角形（予算 +10% に対して 1% 未満）
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height, 1, SHADOW_ROWS), mat);
   mesh.name = 'contactShadow';
   mesh.renderOrder = -1;
   return mesh;
+}
+
+/** 落ち影の板の縦の分割数。地平線で切るために要る */
+export const SHADOW_ROWS = 6;
+
+/**
+ * 落ち影のうち、**地平線より上に乗るぶんだけ**を消す。
+ *
+ * ==========================================================================
+ * **板ぜんたいの不透明度を下げてはいけない**（2026-09-13 に踏んだ）。
+ * `SKY_SHADOW_FADE` を `material.opacity` に掛けていたので、
+ * 空に乗るぶんと一緒に**地面に乗るぶん（＝接地の手がかり）も薄まっていた**。
+ * 実測（baseline → いま）: 接地の暗さ V5 が上の段の6箇所で
+ * ouchi/hako 18.19 → 7.50、ouchi/kaaten 16.57 → 7.82、
+ * noujou/koya 20.44 → 7.73、noujou/wara 17.59 → 7.32、
+ * kyoryu/shida 16.31 → 6.75、kyoryu/ooiwa 13.56 → 6.53 と半分以下に落ちた。
+ * それでいて判定の実測では影の 43.8〜51.9% がまだ空に乗っていた
+ * ——**薄くしただけで、空から消えてはいなかった**。
+ *
+ * だから頂点アルファで高さごとに消す。地面に乗るぶんは 1 のまま。
+ * ==========================================================================
+ */
+export function fadeShadowOverSky(
+  mesh: THREE.Mesh,
+  localToWorldY: (localY: number) => number,
+  horizonY: number,
+  band: number,
+  floor: number
+): void {
+  const geometry = mesh.geometry as THREE.BufferGeometry;
+  const position = geometry.getAttribute('position');
+  const colors = new Float32Array(position.count * 4);
+  for (let i = 0; i < position.count; i++) {
+    const worldY = localToWorldY(position.getY(i));
+    // 地平線のちょうど上で 1 → floor になめらかに落とす。
+    // 段差で切ると、影の途中に水平な線が見える
+    const t = Math.max(0, Math.min(1, (worldY - horizonY) / Math.max(1e-4, band)));
+    const alpha = 1 - (1 - floor) * t;
+    colors[i * 4] = 1;
+    colors[i * 4 + 1] = 1;
+    colors[i * 4 + 2] = 1;
+    colors[i * 4 + 3] = alpha;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+  const material = mesh.material as THREE.MeshBasicMaterial;
+  material.vertexColors = true;
+  material.opacity = 1;
+  material.needsUpdate = true;
 }
 
 /* --- 背景の絵（`SceneConfig.backgroundUrl`）------------------------------- */
