@@ -267,6 +267,17 @@ function passes(key, value) {
   return Math.abs(value) <= g.absMax;
 }
 /** 基準からどれだけ足りないか（0 なら満たしている）。場面の並べ替えに使う */
+/**
+ * baseline から「基準の向きと逆に」動いたか。
+ * `shortfall` と違って、**基準を満たしている範囲の動きも数える**
+ */
+function declined(key, value, before) {
+  const gate = GATE[key];
+  if (gate.min !== undefined) return value < before - 1e-9;
+  if (gate.max !== undefined) return value > before + 1e-9;
+  return Math.abs(value) > Math.abs(before) + 1e-9;
+}
+
 function shortfall(key, value) {
   const g = GATE[key];
   if (g.min !== undefined) return Math.max(0, g.min - value);
@@ -335,6 +346,18 @@ async function main() {
   }
 
   const regressions = [];
+  /**
+   * **基準を満たしたまま下がったぶんも数えた件数。**
+   *
+   * `regressions` は「基準から遠ざかった」だけを数えるので、
+   * V1 が 54.01 → 28.97（どちらも下限 8.0 以上）のような大きな低下を
+   * **1件も報告しない**。合格条件3 は「baseline より悪化した項目が1つも無い」
+   * という素の言い方なので、**こちらのほうが条件3 の読みに忠実**。
+   * 2026-09-13、`visual-judge` が「V1 が 29箇所中 26箇所で低下」と指摘して
+   * 食い違いが分かったので、両方を出すようにした。
+   * **基準を緩めたのではなく、報告を増やしただけ**（基準は人間が決める）。
+   */
+  const declines = [];
   if (prev) {
     console.log('\nbaseline との差（! は悪化）');
     for (const id of shot.scenes) {
@@ -353,6 +376,12 @@ async function main() {
               `${id}/${s.spot} ${k.toUpperCase()} ${b[k]} → ${s[k]}（${GATE[k].label}）`
             );
           }
+          // 基準の内側での低下も数える（合格条件3 の素の読み）
+          if (declined(k, s[k], b[k])) {
+            declines.push(
+              `${id}/${s.spot} ${k.toUpperCase()} ${b[k]} → ${s[k]}（${GATE[k].label}）`
+            );
+          }
           return `${worse ? '!' : ' '}${(d >= 0 ? '+' : '') + d.toFixed(2).padStart(6)}`;
         });
         console.log(`${id.padEnd(10)}${String(s.spot).padEnd(10)}` + cells.join(''));
@@ -363,6 +392,7 @@ async function main() {
   await writeFile(resolve(dir, 'score.json'), JSON.stringify(out, null, 2) + '\n', 'utf8');
   if (prev) {
     console.log(`\n悪化した項目: ${regressions.length} 件`);
+  if (prev) console.log(`baseline から下がった項目（基準内の動きも含む）: ${declines.length} 件`);
     for (const r of regressions) console.log(`  ${r}`);
   }
   console.log(`\n基準を外れた項目: ${failures.length} 件`);
